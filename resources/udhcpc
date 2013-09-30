@@ -1,0 +1,49 @@
+#!/bin/busybox sh
+
+[ -z "$1" ] && echo 'Error: should be called from udhcpc' && exit 1
+
+CFG_BASE="/var/run"
+mkdir -p "${CFG_BASE}"
+
+CFG="${CFG_BASE}/udhcpc.${interface}.cfg"
+
+RESOLV_CONF='/etc/resolv.conf'
+NTP_CONF='/etc/ntp.conf'
+
+PEER_IF=eth0
+
+case "$1" in
+  deconfig)
+    ip addr flush dev $interface
+    ip link set $interface up
+    
+    rm -f $CFG
+    ;;
+    
+  renew|bound)
+    set > $CFG
+    
+    ip addr flush dev $interface
+    ip addr add ${ip}/${mask} dev $interface
+    
+    [ -n "$router" ] && ip route add default via ${router%% *} dev $interface
+    
+    if [ "$interface" == "$PEER_IF" ] ; then
+      [ -n "$domain" ] && echo search $domain > $RESOLV_CONF
+      for i in $dns ; do
+        echo nameserver $i >> $RESOLV_CONF
+      done
+
+      > $NTP_CONF
+      for i in $ntpsrv ; do
+        echo server $i >> $NTP_CONF
+      done
+      
+      if [ -n "$hostname" ]; then
+        echo "$hostname" >| /proc/sys/kernel/hostname
+      fi
+    fi
+    ;;
+esac
+
+exit 0
