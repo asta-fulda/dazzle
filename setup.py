@@ -31,22 +31,24 @@ setuptools.setup(
   install_requires = [
     'blessings >= 1.5.0',
     'enum >= 0.4',
-    'sh >= 1.0'
+    'sh >= 1.0',
+    'humanize >= 0.5'
   ],
 
   entry_points = {
     'dazzle.tasks' : [
-      'wakeup = dazzle.tasks.ctrl:Wakeup',
-      'shutdown = dazzle.tasks.ctrl:Shutdown',
+      'wakeup = dazzle.tasks.ctrl:WakeupGroup',
+      'shutdown = dazzle.tasks.ctrl:ShutdownGroup',
 
-      'acquire = dazzle.tasks.clone:Acquire',
-      'release = dazzle.tasks.clone:Release',
+      'acquire = dazzle.tasks.clone:AcquireGroup',
+      'release = dazzle.tasks.clone:ReleaseGroup',
 
-      'receive = dazzle.tasks.clone:Receive',
+      'receive = dazzle.tasks.clone:ReceiveGroup',
 
       'kernel = dazzle.tasks.bootimg:Kernel',
       'busybox = dazzle.tasks.bootimg:Busybox',
       'dropbear = dazzle.tasks.bootimg:Dropbear',
+      'xzutils = dazzle.tasks.bootimg:XZUtils',
       'udpcast = dazzle.tasks.bootimg:UDPCast',
 
       'bootimg = dazzle.tasks.bootimg:Image',

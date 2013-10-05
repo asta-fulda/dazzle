@@ -93,24 +93,24 @@ class CompileTask(BuildTask):
   def download(self, j):
     archive_file, _ = self.archive
 
-    def reporthook(blocknum, blocksize, size):
+    def report(blocknum, blocksize, size):
       j.progress = '%05.2f %%' % round(float(blocknum * blocksize) * 100.0 / float(size), 2)
 
     urllib.urlretrieve(url = self.url,
                        filename = archive_file,
-                       reporthook = reporthook)
+                       reporthook = report)
 
 
   def extract(self, j):
     archive_file, archive_algo = self.archive
 
-    def reporthook(line):
+    def report(line):
       j.progress = '%s %%' % int(line.strip())
 
     sh.tar(sh.pv(archive_file,
                  '-n',
                  _piped = True,
-                 _err = reporthook),
+                 _err = report),
            '--strip-components=1',
            '--%s' % archive_algo,
            extract = True,
@@ -288,7 +288,8 @@ class Dropbear(CompileTask):
       sh.sh('%s/configure' % self.workdir_src,
             '--prefix', '/usr',
             '--disable-zlib',
-            '--enable-bundled-libtom')
+            '--enable-bundled-libtom',
+            _out = self.log)
 
       sh.make('thisclean',
               _out = self.log)
@@ -323,6 +324,55 @@ class Dropbear(CompileTask):
                     _out = self.log)
 
 
+class XZUtils(CompileTask):
+  ''' Download and build xz utils '''
+
+  def __init__(self, target):
+    CompileTask.__init__(self, target)
+
+
+  @property
+  def project(self):
+    return 'xz'
+
+
+  @property
+  def url(self):
+    return 'http://tukaani.org/xz/xz-5.0.5.tar.xz'
+
+
+  def compile(self, j):
+    with cd(self.workdir_dst):
+      sh.sh('%s/configure' % self.workdir_src,
+            '--prefix', '/usr',
+            '--disable-lzma-links',
+            '--disable-lzmadec',
+            '--disable-lzmainfo',
+            '--disable-scripts',
+            '--disable-threads',
+            '--disable-xzdec',
+            '--disable-shared',
+            _out = self.log)
+
+      sh.make('clean',
+              _out = self.log)
+
+      sh.make('all',
+              'LDFLAGS=--static',
+              '-j4',
+              _out = self.log)
+
+
+  def install(self, j):
+    with cd(self.workdir_dst):
+      # We don't need most of the stuff xz would install - so do it manually
+      sh.install('-d',
+                 mkpath(self.target, 'usr/bin'))
+      sh.install('-m755',
+                 'src/xz/xz',
+                 mkpath(self.target, 'usr/bin'))
+
+
 
 class UDPCast(CompileTask):
   ''' Download and build udpcast '''
@@ -345,7 +395,8 @@ class UDPCast(CompileTask):
   def compile(self, j):
     with cd(self.workdir_dst):
       sh.sh('%s/configure' % self.workdir_src,
-            '--prefix', '/usr')
+            '--prefix', '/usr',
+            _out = self.log)
 
       sh.make('clean',
               _out = self.log)
@@ -383,6 +434,7 @@ class Image(BuildTask):
     self.__kernel = Kernel(target = self.workdir)
     self.__busybox = Busybox(target = self.workdir)
     self.__dropbear = Dropbear(target = self.workdir)
+    self.__xzutils = XZUtils(target = self.workdir)
     self.__udpcast = UDPCast(target = self.workdir)
 
 
@@ -396,7 +448,8 @@ class Image(BuildTask):
     return [self.__kernel,
             self.__busybox,
             self.__dropbear,
-            self.__udpcast]
+            self.__udpcast,
+            self.__xzutils]
 
 
   def run(self):
@@ -469,4 +522,5 @@ class Image(BuildTask):
     parser.add_argument(dest = 'target',
                         metavar = 'TARGET',
                         type = str,
+                        default = '/srv/tftp/maintenance',
                         help = 'the installation target')

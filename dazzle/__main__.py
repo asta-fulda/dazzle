@@ -16,13 +16,6 @@ parser.add_argument('-v', '--verbose',
                     default = False,
                     help = 'enable verbose messages')
 
-parser.add_argument('-l', '--list',
-                    dest = 'hostlist',
-                    metavar = 'HOSTLIST',
-                    type = HostList,
-                    required = True,
-                    help = 'the host list file')
-
 subparsers = parser.add_subparsers(title = 'tasks',
                                    help = 'the task to execute')
 
@@ -38,9 +31,11 @@ for task in find_tasks(entry_point_group = 'dazzle.tasks'):
     task.argparser(task_grp_parser)
 
   task_parser.set_defaults(task = task,
-                           args = [action.dest
-                                   for action
-                                   in task_grp_parser._group_actions])
+                           task_args = [action.dest
+                                        for action
+                                        in task_grp_parser._group_actions
+                                        if not (action.dest.startswith('__') and
+                                                action.dest.endswith('__'))])
 
 
 
@@ -48,13 +43,15 @@ def main():
   args = parser.parse_args()
 
   if args.verbose:
-    logging.root.setLevel(level = logging.DEBUG),
+    logging.root.setLevel(level = logging.DEBUG)
 
-  task = args.task(**{name : getattr(args, name)
-                      for name
-                      in args.args})
+  task_args = {name : getattr(args, name)
+               for name
+               in args.task_args}
 
-  logging.debug('Executing task: %s' % task)
+  task = args.task(**task_args)
+
+  logging.debug('Executing task: %s with %s', task, task_args)
   task()
 
 

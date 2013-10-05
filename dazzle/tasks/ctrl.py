@@ -1,12 +1,39 @@
-from dazzle.host import HostTask, HostGroupMixin
-from dazzle.task import parallelize
+from dazzle.host import HostTask, group
+from dazzle.task import JobState
+
 from dazzle.utils import *
+from dazzle.commands import *
+
+import re
 
 
 
-@parallelize(HostGroupMixin, 'hosts', 'host')
 class Wakeup(HostTask):
   ''' Waking up host '''
+
+  ip_route_get_re = re.compile(r'''
+    ^
+    (?P<dst>
+      ([\d\.]+)
+    )
+    \ +dev\ +(?P<dev>
+      (\w+)
+    )
+    \ +src \ +(?P<src>
+      ([\d\.]+)
+    )
+    $
+  ''', re.VERBOSE)
+
+
+  def __init__(self, host):
+    try:
+      self.__etherwake = sh.etherwake
+
+    except:
+      self.__etherwake = sh.ether_wake
+
+    HostTask.__init__(self, host)
 
 
   def check(self):
@@ -14,12 +41,37 @@ class Wakeup(HostTask):
 
 
   def run(self):
-    while not ping(self.host):
-      sh.etherwake(self.host.l2addr)
+    # Find the interface to send the wake up packet from
+    for line in sh.ip.route.get(self.host.l3addr):
+      route = self.ip_route_get_re.match(line.strip())
+
+      if route and route.group('dst') == self.host.l3addr:
+        device = route.group('dev')
+        break
+
+    else:
+      self.state = JobState.States.Failed('Can\'t find interface for host: %s' % self.host.l3addr)
+
+
+    # Try 60 times to wake the host up
+    for x in xrange(1, 60):
+      # Update task's progress
+      self.progress = '%02d / 60' % x
+
+      # Send out wake up packets
+      self.__etherwake(self.host.l2addr,
+                       '-i', device)
+
+      # Check if the host is up
+      if ping(self.host,
+              timeout = 1):
+        break
+
+    else:
+      self.state = JobState.States.Failed('Host does not wake up in time')
 
 
 
-@parallelize(HostGroupMixin, 'hosts', 'host')
 class Shutdown(HostTask):
   ''' Shutting down host '''
 
@@ -30,3 +82,8 @@ class Shutdown(HostTask):
 
   def run(self):
     ssh(self.host, 'poweroff')
+
+
+
+WakeupGroup = group(Wakeup)
+ShutdownGroup = group(Shutdown)

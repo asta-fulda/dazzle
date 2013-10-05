@@ -2,6 +2,7 @@ import socket
 import collections
 import argparse
 import logging
+import threading
 import ConfigParser as configparser
 
 from dazzle.task import Task
@@ -60,7 +61,7 @@ class HostList(object):
 
         if parser.has_option(label, 'group'):
           for group in parser.get(label, 'group').split(','):
-            self.__groups[group].append(host)
+            self.__groups[group.strip()].append(host)
 
 
   def get(self, label):
@@ -101,7 +102,7 @@ class HostSetAction(argparse.Action):
 
     for value in values:
       try:
-        for host in namespace.hostlist.get(value):
+        for host in namespace.__hostlist__.get(value):
           namespace.hosts.add(host)
 
       except KeyError:
@@ -109,31 +110,73 @@ class HostSetAction(argparse.Action):
 
 
 
-class HostGroupMixin:
+def group(taskcls):
+  # Ensure given class is a host task class
+  assert issubclass(taskcls, HostTask)
 
-  @staticmethod
-  def argparser(parser):
-    parser.add_argument(dest = 'hosts',
-                        metavar = 'HOST',
-                        type = str,
-                        nargs = '+',
-                        action = HostSetAction,
-                        help = 'the hosts to run the task on')
+  class Wrapped(Task):
+    def __init__(self, hosts, **kwargs):
+      self.__hosts = hosts
 
+      self.__tasks = [taskcls(host = host,
+                              **kwargs)
+                      for host
+                      in hosts]
 
-
-class HostSetTask(Task, HostGroupMixin):
-  def __init__(self, hosts):
-    self.__hosts = hosts
-
-    Task.__init__(self)
+      Task.__init__(self)
 
 
-  @property
-  def element(self):
-    return self.hosts
+    @property
+    def hosts(self):
+      return self.__hosts
 
 
-  @property
-  def hosts(self):
-    return self.__hosts
+    @property
+    def tasks(self):
+      return self.__tasks
+
+
+    @property
+    def element(self):
+      return '[%s]' % ', '.join(str(task.element)
+                                for task
+                                in self.tasks)
+
+
+    def run(self):
+      threads = [threading.Thread(target = task)
+                 for task
+                 in self.tasks]
+
+      for thread in threads:
+        thread.start()
+
+      for thread in threads:
+        thread.join()
+
+
+    @staticmethod
+    def argparser(parser):
+      parser.add_argument('-l', '--list',
+                          dest = '__hostlist__',
+                          metavar = 'HOSTLIST',
+                          type = HostList,
+                          required = True,
+                          help = 'the host list file')
+
+      parser.add_argument(dest = 'hosts',
+                          metavar = 'HOST',
+                          type = str,
+                          nargs = '+',
+                          action = HostSetAction,
+                          help = 'the hosts to run the task on')
+
+      # Check if subclass has arguments defined and attach it to the wrapper
+      if hasattr(taskcls, 'argparser'):
+        taskcls.argparser(parser)
+
+  # Copy meta data to wrapper class
+  Wrapped.__doc__ = taskcls.__doc__
+  Wrapped.__name__ = '@%s' % taskcls.__name__
+
+  return Wrapped

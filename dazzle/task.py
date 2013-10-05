@@ -1,15 +1,15 @@
 from abc import ABCMeta, abstractmethod, abstractproperty
 from enum import Enum
 
-import sys
 import inspect
 import threading
 import collections
 import functools
 import pkg_resources
 import blessings
-import traceback
 import contextlib
+import traceback
+import os
 import sh
 
 
@@ -70,7 +70,6 @@ JobState.States = Enum('Checking',
 
                        'Finished',
                        'Skipped',
-                       'Aborted',
                        'Failed',
 
                        value_type = lambda enum, i, key: type('JobState%s' % key,
@@ -117,12 +116,36 @@ class Job(object):
 
   @abstractproperty
   def title(self):
-    return self.__title
+    pass
 
 
   @abstractproperty
   def element(self):
     pass
+
+
+
+@contextlib.contextmanager
+def job_error_handler(job):
+  try:
+    yield
+
+  except sh.ErrorReturnCode as ex:
+    if ex.stderr:
+      message = ex.stderr[:-1]
+
+    elif ex.stdout:
+      message = ex.stdout[:-1]
+
+    else:
+      message = traceback.format_exc()
+
+    job.state = JobState.States.Failed(message.decode('utf-8'))
+
+  except Exception:
+    message = traceback.format_exc()
+
+    job.state = JobState.States.Failed(message.decode('utf-8'))
 
 
 
@@ -134,19 +157,12 @@ def job(title, element = None):
 
   job = ContextJob()
 
-
-  try:
+  with job_error_handler(job):
     job.state = JobState.States.Running()
 
     yield job
 
     job.state = JobState.States.Finished()
-
-  except sh.ErrorReturnCode as ex:
-    job.state = JobState.States.Failed(ex.stderr or ex.stderr)
-
-  except Exception as ex:
-    job.state = JobState.States.Failed(str(ex))
 
 
 
@@ -175,7 +191,7 @@ class JobManager(object):
 
 
   def __print_line(self, line = ''):
-    terminal.stream.write('%s%s\n' % (line.decode("utf8"),
+    terminal.stream.write('%s%s\n' % (line,
                                       terminal.clear_eol))
 
   def __print_skip(self):
@@ -183,7 +199,9 @@ class JobManager(object):
 
 
   def __print_job(self, job):
-    line = '[ %s ] ' % JobManager.state_format[type(job.state)]
+    line = terminal.bold_white('[ ') + \
+           JobManager.state_format[type(job.state)] + \
+           terminal.bold_white(' ] ')
 
     if job.title is not None: line += '%s' % job.title
     if job.element is not None: line += ': %s' % job.element
@@ -192,54 +210,73 @@ class JobManager(object):
     self.__print_line(line)
 
 
-  def update(self, job):
+  def __print_sep(self):
+    self.__print_line(terminal.bold_black('-' * terminal.width))
+
+
+  def __print_message(self, message):
+    width = terminal.width - 9
+
+    for line in message.split('\n'):
+      for i in range(0, len(line), width):
+        self.__print_line(terminal.bold_white('       | ') + \
+                          line[i:i + width])
+
+
+  def update(self, updated_job):
     with terminal_lock:
       terminal.stream.write('\r')
 
-      if job not in self.__jobs:
+      if updated_job not in self.__jobs:
         # New job
-        self.__jobs.append(job)
+        self.__jobs.append(updated_job)
 
         self.__print_reset(0)
-        self.__print_job(job)
+        self.__print_job(updated_job)
 
-      elif type(job.state) in [JobState.States.Finished,
-                             JobState.States.Skipped,
-                             JobState.States.Failed]:
+      elif type(updated_job.state) in [JobState.States.Finished,
+                                       JobState.States.Skipped]:
         # Leaving job
-        self.__jobs.remove(job)
+        self.__jobs.remove(updated_job)
 
+        # Print the finished job topmost
         self.__print_reset(len(self.__jobs) + 1)
-        self.__print_job(job)
+        self.__print_job(updated_job)
 
-        for j in self.__jobs:
-          self.__print_job(j)
+        # Print the message if it exists
+        if updated_job.state.message is not None:
+          self.__print_message(updated_job.state.message)
 
-        if type(job.state) == JobState.States.Failed:
-          # Failing job
-
-          self.__print_line()
+        # Print remaining jobs
+        for job in self.__jobs:
           self.__print_job(job)
-          self.__print_line(job.state.message)
 
-          traceback.print_exc()
+      elif type(updated_job.state) == JobState.States.Failed:
+        # Failing job
+        self.__print_sep()
+        self.__print_job(updated_job)
 
-          sys.exit(1)
+        # Check if we have message and print it
+        if updated_job.state.message is not None:
+          self.__print_message(updated_job.state.message)
+
+        # Hard exiting of the process
+        os._exit(1)
 
       else:
         # Updated job
         self.__print_reset(len(self.__jobs))
 
-        for j in self.__jobs:
-          if j == job:
-            self.__print_job(j)
-
-          else:
+        for job in self.__jobs:
+          # Test if we have to reprint the line - and skip it if not
+          if job != updated_job:
             self.__print_skip()
+            continue
+
+          self.__print_job(job)
 
 
 JobManager.instance = JobManager()
-
 
 
 
@@ -283,106 +320,40 @@ class Task(Job):
 
 
   def __call__(self):
-    try:
-      if self.pre:
+    with job_error_handler(self):
+
+      # Run pre task(s)
+      pre = self.pre
+      if pre is not None:
         self.state = JobState.States.PreRunning()
-        for task in saveiter(self.pre):
+        for task in saveiter(pre):
           task()
 
+      # Check if task must run
       self.state = JobState.States.Checking()
-      run = self.check()
+      required = self.check()
 
-      if run:
+      # Run the task if it's required
+      if required:
         self.state = JobState.States.Running()
         self.run()
 
-      if self.post:
+      # Run post task(s)
+      post = self.post
+      if post is not None:
         self.state = JobState.States.PostRunning()
-        for task in saveiter(self.post):
+        for task in saveiter(post):
           task()
 
-      if run:
+      # Update the status
+      if required:
         self.state = JobState.States.Finished()
+
       else:
         self.state = JobState.States.Skipped()
-
-    except sh.ErrorReturnCode as ex:
-      job.state = JobState.States.Failed(ex.stderr or ex.stderr)
-
-    except Exception as ex:
-      self.state = JobState.States.Failed(str(ex))
 
 
   def __str__(self):
     return '<%s(%s) @ %s>' % (self.__class__.__name__,
                              self.title,
                              self.element)
-
-
-
-
-class GroupTask(Task):
-  def __init__(self, tasks):
-
-    self.__tasks = tasks
-
-    Task.__init__(self)
-
-
-  @property
-  def tasks(self):
-    return self.__tasks
-
-
-
-class SerializedGroupTask(GroupTask):
-
-  def run(self):
-    for task in self.tasks:
-      task()
-
-
-
-class ParallelizedGroupTask(GroupTask):
-
-  def run(self):
-    threads = [threading.Thread(target = task)
-               for task
-               in self.tasks]
-
-    for thread in threads:
-      thread.start()
-
-    for thread in threads:
-      thread.join()
-
-
-
-def group(groupcls, mixincls, plur, sing):
-  assert issubclass(groupcls, GroupTask)
-
-  def wrapper(taskcls):
-    assert issubclass(taskcls, Task)
-
-    def __init__(self, **kwargs):
-      groupcls.__init__(self, tasks = [taskcls(**dict(kwargs.items() +
-                                                      [(sing, element)]))
-                                       for element
-                                       in kwargs.pop(plur)])
-
-    wrapped = type('Grouped' + taskcls.__name__,
-                    (groupcls, mixincls),
-                    {'__init__': __init__,
-                     'element': property(lambda self: ', '.join(str(task.element) for task in self.tasks))})
-
-    wrapped.__doc__ = taskcls.__doc__
-    wrapped.__module__ = taskcls.__module__
-
-    return wrapped
-
-  return wrapper
-
-
-
-serialize = functools.partial(group, SerializedGroupTask)
-parallelize = functools.partial(group, ParallelizedGroupTask)

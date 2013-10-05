@@ -3,7 +3,7 @@ import contextlib
 
 from os.path import join as mkpath
 
-from sh import which
+import sh
 
 
 
@@ -20,7 +20,7 @@ def checkrc(func):
       func(*args, **kwargs)
       return True
 
-    except Exception:
+    except Exception as ex:
       return False
 
   return __
@@ -39,18 +39,20 @@ def cd(new_path):
 
 
 @checkrc
-def ping(host):
-  sh.ping('-c3',
-          '-i0.2',
+def ping(host,
+         timeout = 3):
+  sh.ping('-c', '3',
+          '-i', '0.2',
+          '-w', timeout,
           host.l3addr)
 
 
 
-@checkrc
 def ssh(host, *args, **kwargs):
   sh.ssh('-q',
          '-o UserKnownHostsFile=/dev/null',
          '-o StrictHostKeyChecking=no',
+         '-o PasswordAuthentication=no',
          '-l root',
          host.l3addr,
          *args,
