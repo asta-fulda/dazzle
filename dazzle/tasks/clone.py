@@ -2,6 +2,7 @@ from dazzle.host import HostTask, group
 
 from dazzle.commands import *
 from dazzle.utils import *
+from dazzle.task import JobState
 
 from dazzle.tasks.ctrl import Wakeup, Shutdown
 
@@ -38,8 +39,16 @@ class Acquire(HostTask):
 
 
   def run(self):
-    ln('/srv/tftp/pxelinux.cfg/maintenance',
-       '/srv/tftp/pxelinux.cfg/%s' % ip2hex(self.host))
+    src = '/srv/tftp/pxelinux.cfg/maintenance'
+    dst = '/srv/tftp/pxelinux.cfg/%s' % ip2hex(self.host)
+
+    if not os.path.exists(src):
+      self.status = JobState.States.Failed('Maintenance TFTP config is missing: %s' % src)
+
+    if os.path.exists(dst):
+      self.status = JobState.States.Failed('Client specific TFTP config already exists: %s' % dst)
+
+    ln(src, dst)
 
 
   @property
@@ -52,7 +61,14 @@ class Release(HostTask):
   ''' Disable maintenance mode '''
 
   def check(self):
-    return ssh(self.host, 'cat', '/etc/maintenance')
+    try:
+      ssh(self.host, 'cat', '/etc/maintenance')
+
+    except:
+      return False
+
+    else:
+      return True
 
 
   def run(self):

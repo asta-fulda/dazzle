@@ -39,6 +39,7 @@ setuptools.setup(
     'dazzle.tasks' : [
       'wakeup = dazzle.tasks.ctrl:WakeupGroup',
       'shutdown = dazzle.tasks.ctrl:ShutdownGroup',
+      'execute = dazzle.tasks.ctrl:ExecuteGroup',
 
       'acquire = dazzle.tasks.clone:AcquireGroup',
       'release = dazzle.tasks.clone:ReleaseGroup',

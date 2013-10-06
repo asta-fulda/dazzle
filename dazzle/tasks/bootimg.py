@@ -1,10 +1,10 @@
 from abc import abstractmethod, abstractproperty
 
-import urllib
-
 from dazzle.task import Task, job
 from dazzle.utils import *
 from dazzle.commands import *
+
+import urllib
 
 
 
@@ -13,12 +13,18 @@ class BuildTask(Task):
   element = property(lambda self: None)
 
 
-  def __init__(self):
-#     self.__workdir = mkdtemp(prefix = 'dazzle-kernel-')
-    self.__workdir = mkpath('/tmp/dazzle', type(self).__name__)
-    mkdir(self.__workdir)
+  def __init__(self, workspace = None):
+    if workspace is None:
+      self.__workspace = mkdtemp(prefix = 'dazzle-kernel-')
+      self.__workspace_tmp = True
 
-    self.__log = open(self.__workdir + '.log', 'wa')
+    else:
+      self.__workspace = workspace
+      self.__workspace_tmp = False
+
+    mkdir(self.__workspace)
+
+    self.__log = open(self.workdir + '.log', 'wa')
 
     Task.__init__(self)
 
@@ -29,24 +35,55 @@ class BuildTask(Task):
 
 
   @property
+  def workspace(self):
+    return self.__workspace
+
+
+  @property
+  def workspace_tmp(self):
+    return self.__workspace_tmp
+
+
+  @abstractproperty
+  def project(self):
+    pass
+
+
+  @property
   def workdir(self):
-    return self.__workdir
+    return mkpath(self.workspace, self.project)
+
+
+  @abstractmethod
+  def target(self):
+    pass
 
 
   def __del__(self):
     self.__log.close()
 
-#     with job('Cleaning up'):
-#       rmtree(self.__workdir)
+    if self.workspace_tmp:
+      with job('Cleaning up'):
+        rmtree(self.__workspace)
 
-    self.__workdir = None
+    self.__workspace = None
+
+
+  @staticmethod
+  def argparser(parser):
+    parser.add_argument('--workspace',
+                        dest = 'workspace',
+                        metavar = 'DIR',
+                        default = None,
+                        type = str,
+                        help = 'reuse an existing build environment')
 
 
 
 class CompileTask(BuildTask):
 
-  def __init__(self, target):
-    BuildTask.__init__(self)
+  def __init__(self, workspace, target):
+    BuildTask.__init__(self, workspace)
 
     self.__workdir_src = mkpath(self.workdir, 'src')
     self.__workdir_dst = mkpath(self.workdir, 'dst')
@@ -67,11 +104,6 @@ class CompileTask(BuildTask):
   @property
   def target(self):
     return self.__target
-
-
-  @abstractproperty
-  def project(self):
-    pass
 
 
   @abstractproperty
@@ -147,21 +179,9 @@ class CompileTask(BuildTask):
         self.install(j)
 
 
-  @staticmethod
-  def argparser(parser):
-    parser.add_argument(dest = 'target',
-                        metavar = 'TARGET',
-                        type = str,
-                        help = 'the installation target')
-
-
 
 class Kernel(CompileTask):
   ''' Download and compile kernel '''
-
-  def __init__(self, target):
-    CompileTask.__init__(self, target)
-
 
   @property
   def project(self):
@@ -175,9 +195,10 @@ class Kernel(CompileTask):
 
   def compile(self, j):
     with cd(self.workdir_src):
-      sh.make('O=%s' % self.workdir_dst,
-              'clean',
-              _out = self.log)
+      if self.workspace_tmp:
+        sh.make('O=%s' % self.workdir_dst,
+                'clean',
+                _out = self.log)
 
       sh.cp(resource('kernel.config'),
             mkpath(self.workdir_dst, '.config'))
@@ -224,10 +245,6 @@ class Kernel(CompileTask):
 class Busybox(CompileTask):
   ''' Download and build busybox '''
 
-  def __init__(self, target):
-    CompileTask.__init__(self, target)
-
-
   @property
   def project(self):
     return 'busybox'
@@ -240,9 +257,10 @@ class Busybox(CompileTask):
 
   def compile(self, j):
     with cd(self.workdir_src):
-      sh.make('O=%s' % self.workdir_dst,
-              'clean',
-              _out = self.log)
+      if self.workspace_tmp:
+        sh.make('O=%s' % self.workdir_dst,
+                'clean',
+                _out = self.log)
 
       sh.cp(resource('busybox.config'),
             mkpath(self.workdir_dst, '.config'))
@@ -269,10 +287,6 @@ class Busybox(CompileTask):
 class Dropbear(CompileTask):
   ''' Download and build dropbear '''
 
-  def __init__(self, target):
-    CompileTask.__init__(self, target)
-
-
   @property
   def project(self):
     return 'dropbear'
@@ -291,8 +305,9 @@ class Dropbear(CompileTask):
             '--enable-bundled-libtom',
             _out = self.log)
 
-      sh.make('thisclean',
-              _out = self.log)
+      if self.workspace_tmp:
+        sh.make('thisclean',
+                _out = self.log)
 
       sh.make('STATIC=1',
               'all',
@@ -327,10 +342,6 @@ class Dropbear(CompileTask):
 class XZUtils(CompileTask):
   ''' Download and build xz utils '''
 
-  def __init__(self, target):
-    CompileTask.__init__(self, target)
-
-
   @property
   def project(self):
     return 'xz'
@@ -354,8 +365,9 @@ class XZUtils(CompileTask):
             '--disable-shared',
             _out = self.log)
 
-      sh.make('clean',
-              _out = self.log)
+      if self.workspace_tmp:
+        sh.make('clean',
+                _out = self.log)
 
       sh.make('all',
               'LDFLAGS=--static',
@@ -377,10 +389,6 @@ class XZUtils(CompileTask):
 class UDPCast(CompileTask):
   ''' Download and build udpcast '''
 
-  def __init__(self, target):
-    CompileTask.__init__(self, target)
-
-
   @property
   def project(self):
     return 'udpcast'
@@ -388,7 +396,6 @@ class UDPCast(CompileTask):
 
   @property
   def url(self):
-    # return 'http://www.udpcast.linux.lu/download/udpcast-20120424.tar.gz'
     return 'http://pkgs.fedoraproject.org/repo/pkgs/udpcast/udpcast-20120424.tar.gz/b9b67a577ca5659a93bcb9e43f298fb2/udpcast-20120424.tar.gz'
 
 
@@ -398,8 +405,9 @@ class UDPCast(CompileTask):
             '--prefix', '/usr',
             _out = self.log)
 
-      sh.make('clean',
-              _out = self.log)
+      if self.workspace_tmp:
+        sh.make('clean',
+                _out = self.log)
 
       sh.make('all',
               'LDFLAGS=--static',
@@ -426,21 +434,26 @@ class UDPCast(CompileTask):
 class Image(BuildTask):
   ''' Download, compile and install maintenance boot image '''
 
-  def __init__(self, target):
+  def __init__(self, workspace, target):
+    BuildTask.__init__(self, workspace)
+
+    self.__kernel = Kernel(workspace = workspace, target = self.workdir)
+    self.__busybox = Busybox(workspace = workspace, target = self.workdir)
+    self.__dropbear = Dropbear(workspace = workspace, target = self.workdir)
+    self.__xzutils = XZUtils(workspace = workspace, target = self.workdir)
+    self.__udpcast = UDPCast(workspace = workspace, target = self.workdir)
+
     self.__target = target
-
-    BuildTask.__init__(self)
-
-    self.__kernel = Kernel(target = self.workdir)
-    self.__busybox = Busybox(target = self.workdir)
-    self.__dropbear = Dropbear(target = self.workdir)
-    self.__xzutils = XZUtils(target = self.workdir)
-    self.__udpcast = UDPCast(target = self.workdir)
 
 
   @property
   def target(self):
     return self.__target
+
+
+  @property
+  def project(self):
+    return 'image'
 
 
   @property
@@ -454,6 +467,10 @@ class Image(BuildTask):
 
   def run(self):
     with cd(self.workdir):
+
+      if self.workspace_tmp:
+        rm('*')
+
       with job('Create base layout'):
         for d in [
             'etc',
@@ -519,8 +536,10 @@ class Image(BuildTask):
 
   @staticmethod
   def argparser(parser):
-    parser.add_argument(dest = 'target',
+    BuildTask.argparser(parser)
+
+    parser.add_argument('target',
                         metavar = 'TARGET',
+                        default = 'srv/tftp/maintenance',
                         type = str,
-                        default = '/srv/tftp/maintenance',
-                        help = 'the installation target')
+                        help = 'the path of the boot image to create')

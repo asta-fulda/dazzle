@@ -1,5 +1,8 @@
 #!/bin/sh
 
+# Create identifier file
+touch /etc/maintenance
+
 # Mount /proc and /sys
 mount -t proc proc /proc
 mount -t sysfs sysfs /sys

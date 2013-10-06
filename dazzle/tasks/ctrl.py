@@ -85,5 +85,40 @@ class Shutdown(HostTask):
 
 
 
+class Execute(HostTask):
+  ''' Execute given command on host '''
+
+
+  def __init__(self, host, command):
+    HostTask.__init__(self, host)
+
+    self.__command = command
+
+
+  @property
+  def command(self):
+    return self.__command
+
+
+  def check(self):
+    return ping(self.host)
+
+
+  def run(self):
+    self.progress = self.command
+
+    ssh(self.host, self.command)
+
+
+  @staticmethod
+  def argparser(parser):
+    parser.add_argument(dest = 'command',
+                        metavar = 'COMMAND',
+                        type = str,
+                        help = 'the command to run on the remote host(s)')
+
+
+
 WakeupGroup = group(Wakeup)
 ShutdownGroup = group(Shutdown)
+ExecuteGroup = group(Execute)
