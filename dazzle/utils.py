@@ -49,8 +49,7 @@ def ping(host,
 
 
 def ssh(host, *args, **kwargs):
-  sh.ssh('-q',
-         '-o', 'UserKnownHostsFile=/dev/null',
+  sh.ssh('-o', 'UserKnownHostsFile=/dev/null',
          '-o', 'StrictHostKeyChecking=no',
          '-o', 'PasswordAuthentication=no',
          '-l root',

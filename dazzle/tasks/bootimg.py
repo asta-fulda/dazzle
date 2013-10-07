@@ -1,10 +1,12 @@
 from abc import abstractmethod, abstractproperty
 
-from dazzle.task import Task, job
+from dazzle.task import Task, job, JobState
 from dazzle.utils import *
 from dazzle.commands import *
 
 import urllib
+import itertools
+import re
 
 
 
@@ -124,6 +126,10 @@ class CompileTask(BuildTask):
 
   def download(self, j):
     archive_file, _ = self.archive
+
+    if not self.workspace_tmp and os.path.exists(mkpath(self.workdir, archive_file)):
+      j.state = JobState.States.Skipped('Using existing file: %s' % mkpath(self.workdir, archive_file))
+      return
 
     def report(blocknum, blocksize, size):
       j.progress = '%05.2f %%' % round(float(blocknum * blocksize) * 100.0 / float(size), 2)
@@ -309,7 +315,7 @@ class Dropbear(CompileTask):
         sh.make('thisclean',
                 _out = self.log)
 
-      sh.make('STATIC=1',
+      sh.make(# 'STATIC=1',
               'all',
               '-j4',
               _out = self.log)
@@ -370,7 +376,7 @@ class XZUtils(CompileTask):
                 _out = self.log)
 
       sh.make('all',
-              'LDFLAGS=--static',
+#               'LDFLAGS=--static',
               '-j4',
               _out = self.log)
 
@@ -410,7 +416,7 @@ class UDPCast(CompileTask):
                 _out = self.log)
 
       sh.make('all',
-              'LDFLAGS=--static',
+#               'LDFLAGS=--static',
               '-j4',
               _out = self.log)
 
@@ -432,7 +438,40 @@ class UDPCast(CompileTask):
 
 
 class Image(BuildTask):
-  ''' Download, compile and install maintenance boot image '''
+  ''' Create maintenance boot image '''
+
+  ldconfig_re = re.compile(r'''
+    ^
+    \s+
+    (?P<name>
+      libnss_(files
+             |dns
+             ).so.2
+    )
+    \ \((?P<spec>
+      .*
+    )\)
+    \ =>
+    \ (?P<path>
+      .+
+    )
+    $
+  ''', re.VERBOSE)
+
+  ldd_re = re.compile(r'''
+    ^
+    \s+(
+      linux-(vdso|gate).so.1
+    |
+      (
+        (\S+\ =>\ )?
+        (?P<path>/\S+)
+      )
+    )
+    \ \(0x[0-9a-f]+\)
+    $
+  ''', re.VERBOSE)
+
 
   def __init__(self, workspace, target):
     BuildTask.__init__(self, workspace)
@@ -475,6 +514,8 @@ class Image(BuildTask):
         for d in [
             'etc',
             'dev', 'dev/pts',
+            'var', 'var/run',
+            'lib',
             'proc',
             'sys',
         ]: mkdir(d)
@@ -499,6 +540,19 @@ class Image(BuildTask):
                    major,
                    minor)
 
+      with job('Copy NSS libraries'):
+        libs = []
+        for line in sh.Command('/sbin/ldconfig')('-p'):
+          lib = self.ldconfig_re.match(line)
+          if lib:
+            libs.append(lib.groupdict())
+
+        for lib in (sorted(libs, key = lambda lib: len(lib['spec'].split(',')))[-1]
+                    for _, libs
+                    in itertools.groupby(libs, lambda lib: lib['name'])):
+          cp_lib(lib['path'],
+                 self.workdir)
+
       with job('Create root user'):
         with open('etc/passwd', 'w') as f:
           f.write('root::0:0:root:/root:/bin/sh\n')
@@ -509,12 +563,46 @@ class Image(BuildTask):
         mkdir('root/')
         mkdir('root/.ssh/')
 
+        try:
+          cp('/root/.ssh/id_dsa.pub',
+             'root/.ssh/authorized_keys')
+
+        except:
+          cp('/root/.ssh/id_rsa.pub',
+             'root/.ssh/authorized_keys')
+
+        sh.chmod('0600', 'root/.ssh/authorized_keys')
+
+      with job('Copy system config files'):
+        cp(resource('nsswitch.conf'),
+           'etc')
+
       with job('Configure boot scripts'):
         ln('bin/busybox', 'init')
         ln('bin/busybox', 'sh')
 
         mkdir('etc/init.d/')
-        cp_script(resource('rcS'), 'etc/init.d/rcS')
+        cp_script(resource('rcS'),
+                  'etc/init.d/rcS')
+
+        cp_script(resource('inittab'),
+                  'etc/inittab')
+
+      with job('Copy required libraries'):
+        for prog in sh.find(self.workdir,
+                            '-type', 'f',
+                            '-executable',
+                            _iter = True):
+          try:
+            for line in sh.ldd(prog[:-1], _iter = True):
+              lib = self.ldd_re.match(line)
+              if lib and lib.group('path'):
+                cp_lib(lib.group('path'),
+                       self.workdir)
+
+          except:
+            pass
+
 
       with job('Create initamfs'):
         initramfs = 'initramfs.cpio'

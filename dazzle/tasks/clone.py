@@ -48,7 +48,7 @@ class Acquire(HostTask):
     if os.path.exists(dst):
       self.status = JobState.States.Failed('Client specific TFTP config already exists: %s' % dst)
 
-    ln(src, dst)
+    ln(dst, src)
 
 
   @property

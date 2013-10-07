@@ -3,6 +3,9 @@
 # Create identifier file
 touch /etc/maintenance
 
+# Create the info pipe
+mkfifo /var/run/info
+
 # Mount /proc and /sys
 mount -t proc proc /proc
 mount -t sysfs sysfs /sys

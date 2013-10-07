@@ -6,22 +6,7 @@ from sh import (
   cp,
   rm,
   mkdir,
-  ln,
-#   curl,
-#   make,
-#   find,
-#   cpio,
-#   tar,
-#   gzip,
-#   ldd,
-#   sed,
-#   dropbearkey,
-#   printf,
-#   ssh,
-#   ping,
-#   arp,
-#   udp_sender,
-#   udp_receiver
+  ln
 )
 
 try:
@@ -53,23 +38,7 @@ def cp_script(src, dst):
 
 
 
-def cp_exec(src, dst):
-  with cd(dst):
-    cp_lib(src, dst)
-
-    for line in sh.ldd(src):
-      lib = sh.sed('-e',
-                   r''' /\//!d;
-                        /linux-gate/d;
-                        /=>/ {s/.*=>[[:blank:]]*\([^[:blank:]]*\).*/\1/};
-                        s/[[:blank:]]*\([^[:blank:]]*\) (.*)/\1/
-                  ''',
-                  _in = line[:-1])
-      if lib:
-        cp_lib(str(lib), dst)
-
-
-
 def cp_lib(src, dst):
   with cd(dst):
+    mkdir(os.path.dirname(src[1:]))
     cp(src, src[1:])

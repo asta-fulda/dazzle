@@ -37,7 +37,8 @@ class Wakeup(HostTask):
 
 
   def check(self):
-    return not ping(self.host)
+    if ping(self.host):
+      return 'Host is already up'
 
 
   def run(self):
@@ -54,9 +55,9 @@ class Wakeup(HostTask):
 
 
     # Try 60 times to wake the host up
-    for x in xrange(1, 60):
+    for x in xrange(0, 60):
       # Update task's progress
-      self.progress = '%02d / 60' % x
+      self.progress = 'Poke %02d / 60' % (x + 1)
 
       # Send out wake up packets
       self.__etherwake(self.host.l2addr,
@@ -77,7 +78,8 @@ class Shutdown(HostTask):
 
 
   def check(self):
-    return ping(self.host)
+    if not ping(self.host):
+      return 'Host is already down'
 
 
   def run(self):
@@ -101,7 +103,8 @@ class Execute(HostTask):
 
 
   def check(self):
-    return ping(self.host)
+    if not ping(self.host):
+      return 'Host is not reachable'
 
 
   def run(self):

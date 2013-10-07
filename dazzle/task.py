@@ -4,7 +4,6 @@ from enum import Enum
 import inspect
 import threading
 import collections
-import functools
 import pkg_resources
 import blessings
 import contextlib
@@ -162,7 +161,10 @@ def job(title, element = None):
 
     yield job
 
-    job.state = JobState.States.Finished()
+    # Jobs can set their state on it's own - don't mess around with it if it was
+    # changed from the running state to something else
+    if type(job.state) == JobState.States.Running:
+      job.state = JobState.States.Finished()
 
 
 
@@ -306,7 +308,7 @@ class Task(Job):
 
 
   def check(self):
-    return True
+    pass
 
 
   @property
@@ -331,10 +333,10 @@ class Task(Job):
 
       # Check if task must run
       self.state = JobState.States.Checking()
-      required = self.check()
+      excuse = self.check()
 
       # Run the task if it's required
-      if required:
+      if excuse is None:
         self.state = JobState.States.Running()
         self.run()
 
@@ -346,11 +348,11 @@ class Task(Job):
           task()
 
       # Update the status
-      if required:
+      if excuse is None:
         self.state = JobState.States.Finished()
 
       else:
-        self.state = JobState.States.Skipped()
+        self.state = JobState.States.Skipped(excuse)
 
 
   def __str__(self):
