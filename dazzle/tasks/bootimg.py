@@ -576,6 +576,8 @@ class Image(BuildTask):
       with job('Copy system config files'):
         cp(resource('nsswitch.conf'),
            'etc')
+        cp(resource('profile'),
+           'etc')
 
       with job('Configure boot scripts'):
         ln('bin/busybox', 'init')

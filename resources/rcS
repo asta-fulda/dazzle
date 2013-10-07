@@ -11,6 +11,9 @@ mount -t proc proc /proc
 mount -t sysfs sysfs /sys
 mount -t devpts devpts /dev/pts
 
+# Start syslog server
+/sbin/syslogd -C4096
+
 # Disable kernel messages
 echo 0 > /proc/sys/kernel/printk
 
@@ -19,7 +22,7 @@ mdev -s
 
 # Optain IP address
 ip link set eth0 up
-udhcpc -b -i eth0 -s /etc/udhcpc/default.script
+udhcpc -S -b -i eth0 -s /etc/udhcpc/default.script
 
 # Enable multicast
 ip route add 224.0.0.0/4 dev eth0
