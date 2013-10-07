@@ -25,4 +25,4 @@ udhcpc -b -i eth0 -s /etc/udhcpc/default.script
 ip route add 224.0.0.0/4 dev eth0
 
 # Starting ssh server
-/usr/sbin/dropbear -E
+/usr/sbin/dropbear -s
