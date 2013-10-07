@@ -220,7 +220,7 @@ class JobManager(object):
     width = terminal.width - 9
 
     for line in message.split('\n'):
-      for i in range(0, len(line), width):
+      for i in range(0, len(line), width - 1):
         self.__print_line(terminal.bold_white('       | ') + \
                           line[i:i + width])
 
