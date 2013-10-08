@@ -79,11 +79,18 @@ JobState.States = Enum('Checking',
 
 class Job(object):
 
-  def __init__(self):
+  def __init__(self, parent):
+    self.__parent = parent
+
     self.__state = None
     self.__progress = None
 
     object.__init__(self)
+
+
+  @property
+  def parent(self):
+    return self.__parent
 
 
   @property
@@ -149,12 +156,12 @@ def job_error_handler(job):
 
 
 @contextlib.contextmanager
-def job(title, element = None):
+def job(parent, title, element = None):
   class ContextJob(Job):
     title = property(lambda self: title)
     element = property(lambda self: element)
 
-  job = ContextJob()
+  job = ContextJob(parent = parent)
 
   with job_error_handler(job):
     running_state = job.state = JobState.States.Running()
@@ -288,10 +295,11 @@ class Task(Job):
   __metaclass__ = ABCMeta
 
 
-  def __init__(self):
+  def __init__(self, parent):
     self.__title = inspect.getdoc(self).split('\n')[0].strip()
 
-    Job.__init__(self)
+    Job.__init__(self,
+                 parent = parent)
 
 
   @property

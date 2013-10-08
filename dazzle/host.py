@@ -79,10 +79,11 @@ class HostList(object):
 
 
 class HostTask(Task):
-  def __init__(self, host):
+  def __init__(self, parent, host):
     self.__host = host
 
-    Task.__init__(self)
+    Task.__init__(self,
+                  parent = parent)
 
 
   @property
@@ -135,7 +136,7 @@ def group(taskcls):
   assert issubclass(taskcls, HostTask)
 
   class Wrapped(Task, HostSetMixin):
-    def __init__(self, hosts, **kwargs):
+    def __init__(self, parent, hosts, **kwargs):
       self.__hosts = hosts
 
       self.__tasks = [taskcls(host = host,
@@ -143,7 +144,8 @@ def group(taskcls):
                       for host
                       in hosts]
 
-      Task.__init__(self)
+      Task.__init__(self,
+                    parent = parent)
 
 
     @property

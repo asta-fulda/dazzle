@@ -49,7 +49,8 @@ def main():
                for name
                in args.task_args}
 
-  task = args.task(**task_args)
+  task = args.task(parent = None,
+                   **task_args)
 
   logging.debug('Executing task: %s with %s', task, task_args)
   task()

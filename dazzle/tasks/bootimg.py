@@ -15,7 +15,7 @@ class BuildTask(Task):
   element = property(lambda self: None)
 
 
-  def __init__(self, workspace = None):
+  def __init__(self, parent, workspace = None):
     if workspace is None:
       self.__workspace = mkdtemp(prefix = 'dazzle-kernel-')
       self.__workspace_tmp = True
@@ -28,7 +28,8 @@ class BuildTask(Task):
 
     self.__log = open(self.workdir + '.log', 'wa')
 
-    Task.__init__(self)
+    Task.__init__(self,
+                  parent = parent)
 
 
   @property
@@ -65,7 +66,7 @@ class BuildTask(Task):
     self.__log.close()
 
     if self.workspace_tmp:
-      with job('Cleaning up'):
+      with job(self, 'Cleaning up'):
         rmtree(self.__workspace)
 
     self.__workspace = None
@@ -84,8 +85,10 @@ class BuildTask(Task):
 
 class CompileTask(BuildTask):
 
-  def __init__(self, workspace, target):
-    BuildTask.__init__(self, workspace)
+  def __init__(self, parent, workspace, target):
+    BuildTask.__init__(self,
+                       parent = parent,
+                       workspace = workspace)
 
     self.__workdir_src = mkpath(self.workdir, 'src')
     self.__workdir_dst = mkpath(self.workdir, 'dst')
@@ -172,16 +175,16 @@ class CompileTask(BuildTask):
     mkdir(self.workdir_dst)
 
     with cd(self.workdir):
-      with job('Download %s source' % self.project) as j:
+      with job(self, 'Download %s source' % self.project) as j:
         self.download(j)
 
-      with job('Extracting %s source' % self.project) as j:
+      with job(self, 'Extracting %s source' % self.project) as j:
         self.extract(j)
 
-      with job('Compile %s' % self.project) as j:
+      with job(self, 'Compile %s' % self.project) as j:
         self.compile(j)
 
-      with job('Install %s' % self.project) as j:
+      with job(self, 'Install %s' % self.project) as j:
         self.install(j)
 
 
@@ -335,7 +338,7 @@ class Dropbear(CompileTask):
               'DESTDIR=%s' % self.target,
               _out = self.log)
 
-    with job('Create host keys'):
+    with job(self, 'Create host keys'):
       with cd(self.target):
         # Generate host keys
         mkdir('etc/dropbear/')
@@ -481,14 +484,16 @@ class Image(BuildTask):
   ''', re.VERBOSE)
 
 
-  def __init__(self, workspace, target):
-    BuildTask.__init__(self, workspace)
+  def __init__(self, parent, workspace, target):
+    BuildTask.__init__(self,
+                       parent = parent,
+                       workspace = workspace)
 
-    self.__kernel = Kernel(workspace = workspace, target = self.workdir)
-    self.__busybox = Busybox(workspace = workspace, target = self.workdir)
-    self.__dropbear = Dropbear(workspace = workspace, target = self.workdir)
-    self.__xzutils = XZUtils(workspace = workspace, target = self.workdir)
-    self.__udpcast = UDPCast(workspace = workspace, target = self.workdir)
+    self.__kernel = Kernel(parent = parent, workspace = workspace, target = self.workdir)
+    self.__busybox = Busybox(parent = parent, workspace = workspace, target = self.workdir)
+    self.__dropbear = Dropbear(parent = parent, workspace = workspace, target = self.workdir)
+    self.__xzutils = XZUtils(parent = parent, workspace = workspace, target = self.workdir)
+    self.__udpcast = UDPCast(parent = parent, workspace = workspace, target = self.workdir)
 
     self.__target = target
 
@@ -518,7 +523,7 @@ class Image(BuildTask):
       if self.workspace_tmp:
         rm('*')
 
-      with job('Create base layout'):
+      with job(self, 'Create base layout'):
         for d in [
             'etc',
             'dev', 'dev/pts',
@@ -548,7 +553,7 @@ class Image(BuildTask):
                    major,
                    minor)
 
-      with job('Copy NSS libraries'):
+      with job(self, 'Copy NSS libraries'):
         libs = []
         for line in sh.Command('/sbin/ldconfig')('-p'):
           lib = self.ldconfig_re.match(line)
@@ -561,7 +566,7 @@ class Image(BuildTask):
           cp_lib(lib['path'],
                  self.workdir)
 
-      with job('Create root user'):
+      with job(self, 'Create root user'):
         with open('etc/passwd', 'w') as f:
           f.write('root::0:0:root:/root:/bin/sh\n')
 
@@ -581,11 +586,11 @@ class Image(BuildTask):
 
         sh.chmod('0600', 'root/.ssh/authorized_keys')
 
-      with job('Copy system config files'):
+      with job(self, 'Copy system config files'):
         cp(resource('nsswitch.conf'),
            'etc')
 
-      with job('Configure boot scripts'):
+      with job(self, 'Configure boot scripts'):
         ln('bin/busybox', 'init')
         ln('bin/busybox', 'sh')
 
@@ -596,7 +601,7 @@ class Image(BuildTask):
         cp_script(resource('inittab'),
                   'etc/inittab')
 
-      with job('Copy required libraries'):
+      with job(self, 'Copy required libraries'):
         for prog in sh.find(self.workdir,
                             '-type', 'f',
                             '-executable',
@@ -612,7 +617,7 @@ class Image(BuildTask):
             pass
 
 
-      with job('Create initamfs'):
+      with job(self, 'Create initamfs'):
         initramfs = 'initramfs.cpio'
 
         sh.cpio(sh.find('.',
@@ -625,7 +630,7 @@ class Image(BuildTask):
                 _out = initramfs,
                 _err = self.log)
 
-      with job('Create boot image'):
+      with job(self, 'Create boot image'):
         self.__kernel.create(initramfs = mkpath(self.workdir, initramfs),
                              target = self.target)
 

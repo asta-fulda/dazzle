@@ -27,14 +27,16 @@ class Wakeup(HostTask):
   ''', re.VERBOSE)
 
 
-  def __init__(self, host):
+  def __init__(self, parent, host):
     try:
       self.__etherwake = sh.etherwake
 
     except:
       self.__etherwake = sh.ether_wake
 
-    HostTask.__init__(self, host)
+    HostTask.__init__(self,
+                      parent = parent,
+                      host = host)
 
 
   def check(self):
@@ -95,8 +97,10 @@ class Execute(HostTask):
   ''' Execute given command on host '''
 
 
-  def __init__(self, host, command):
-    HostTask.__init__(self, host)
+  def __init__(self, parent, host, command):
+    HostTask.__init__(self,
+                      parent = parent,
+                      host = host)
 
     self.__command = command
 

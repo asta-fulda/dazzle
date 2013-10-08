@@ -36,7 +36,7 @@ class MaintenanceConfigManager(object):
 
 
   def create(self):
-    with job('Enable maintenance config', self.__host) as j:
+    with job(self, 'Enable maintenance config', self.__host) as j:
       if not os.path.exists(self.template):
         j.status = JobState.States.Failed('Maintenance TFTP config template is missing: %s' % self.template)
 
@@ -49,7 +49,7 @@ class MaintenanceConfigManager(object):
 
 
   def remove(self):
-    with job('Disable maintenance config', self.__host) as j:
+    with job(self, 'Disable maintenance config', self.__host) as j:
       if not os.path.exists(self.config):
         self.status = JobState.States.Skipped('Client specific TFTP config file does not exists: %s' % self.config)
 
@@ -60,8 +60,10 @@ class MaintenanceConfigManager(object):
 class Acquire(Wakeup):
   ''' Boot host in maintenance mode '''
 
-  def __init__(self, host):
-    Wakeup.__init__(self, host)
+  def __init__(self, parent, host):
+    Wakeup.__init__(self,
+                    parent = parent,
+                    host = host)
 
     self.__maintenance_mgr = MaintenanceConfigManager(host = self.host)
 
@@ -83,7 +85,8 @@ class Acquire(Wakeup):
 
   @property
   def pre(self):
-    return Shutdown(host = self.host)
+    return Shutdown(self,
+                    host = self.host)
 
 
   def run(self):
@@ -98,7 +101,7 @@ class Acquire(Wakeup):
 
 
 class Receive(HostTask):
-  ''' Run data retrieval on host '''
+  ''' Receive data on host '''
 
   udp_receiver_stat_re = re.compile(r'''
     ^
@@ -117,13 +120,15 @@ class Receive(HostTask):
   ''', re.VERBOSE)
 
 
-  def __init__(self, host, dst):
+  def __init__(self, parent, host, dst):
     self.__dst = dst
 
     self.__event_ready = threading.Event()
     self.__event_recvy = threading.Event()
 
-    HostTask.__init__(self, host)
+    HostTask.__init__(self,
+                      parent = parent,
+                      host = host)
 
 
   @property
@@ -138,12 +143,14 @@ class Receive(HostTask):
 
   @property
   def pre(self):
-    return Acquire(self.host)
+    return Acquire(self,
+                   host = self.host)
 
 
   @property
   def post(self):
-    return Shutdown(self.host)
+    return Shutdown(self,
+                    host = self.host)
 
 
   def run(self):
@@ -218,13 +225,14 @@ class Receive(HostTask):
 class Clone(Task, HostSetMixin):
   ''' Clone to hosts '''
 
-  def __init__(self, hosts, src, dst):
+  def __init__(self, parent, hosts, src, dst):
     self.__hosts = hosts
 
     self.__src = src
     self.__dst = dst
 
-    Task.__init__(self)
+    Task.__init__(self,
+                  parent = parent)
 
 
   @property
@@ -237,7 +245,8 @@ class Clone(Task, HostSetMixin):
   def run(self):
     threads = {receiver: threading.Thread(target = receiver)
                for receiver
-               in [Receive(host = host,
+               in [Receive(parent = self,
+                           host = host,
                            dst = self.__dst)
                    for host
                    in self.__hosts]}
