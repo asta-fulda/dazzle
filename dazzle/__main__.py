@@ -1,7 +1,7 @@
 import argparse
 import logging
 
-from dazzle.task import find_tasks
+from dazzle.task import find_tasks, job_manager
 from dazzle.host import HostList
 
 
@@ -49,7 +49,7 @@ def main():
                for name
                in args.task_args}
 
-  task = args.task(parent = None,
+  task = args.task(parent = job_manager.root,
                    **task_args)
 
   logging.debug('Executing task: %s with %s', task, task_args)

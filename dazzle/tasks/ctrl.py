@@ -54,7 +54,7 @@ class Wakeup(HostTask):
         break
 
     else:
-      self.state = JobState.States.Failed('Can\'t find interface for host: %s' % self.host.l3addr)
+      self.state = JobState.Failed('Can\'t find interface for host: %s' % self.host.l3addr)
 
 
     # Try 60 times to wake the host up
@@ -72,7 +72,7 @@ class Wakeup(HostTask):
         break
 
     else:
-      self.state = JobState.States.Failed('Host does not wake up in time')
+      self.state = JobState.Failed('Host does not wake up in time')
 
 
 

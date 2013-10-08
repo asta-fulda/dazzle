@@ -32,7 +32,8 @@ setuptools.setup(
     'blessings >= 1.5.0',
     'enum >= 0.4',
     'sh >= 1.0',
-    'humanize >= 0.5'
+    'humanize >= 0.5',
+    'recordtype >= 1.0'
   ],
 
   entry_points = {

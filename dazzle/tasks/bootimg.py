@@ -131,7 +131,7 @@ class CompileTask(BuildTask):
     archive_file, _ = self.archive
 
     if not self.workspace_tmp and os.path.exists(mkpath(self.workdir, archive_file)):
-      j.state = JobState.States.Skipped(('Using existing file: %s' % mkpath(self.workdir, archive_file)))
+      j.state = JobState.Skipped(('Using existing file: %s' % mkpath(self.workdir, archive_file)))
       return
 
     def report(blocknum, blocksize, size):

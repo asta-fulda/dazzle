@@ -7,53 +7,42 @@ from dazzle.tasks.ctrl import Wakeup, Shutdown
 
 import re
 import sys
+import contextlib
 import threading
 import humanize
 
 
 
-class MaintenanceConfigManager(object):
+@contextlib.contextmanager
+def maintenance_config_enabled(parent, host):
+  ip = ''.join('%02X' % int(i)
+               for
+               i in host.l3addr.split('.'))
 
-  def __init__(self, host):
-    self.__host = host
-
-    ip = ''.join('%02X' % int(i)
-                 for
-                 i in host.l3addr.split('.'))
-
-    self.__template = '/srv/tftp/pxelinux.cfg/maintenance'
-    self.__config = '/srv/tftp/pxelinux.cfg/%s' % ip
+  template = '/srv/tftp/pxelinux.cfg/maintenance'
+  config = '/srv/tftp/pxelinux.cfg/%s' % ip
 
 
-  @property
-  def template(self):
-    return self.__template
+  with job(parent, 'Enable maintenance config', host) as j:
+    if not os.path.exists(template):
+      j.status = JobState.Failed('Maintenance TFTP config template is missing: %s' % template)
 
+    if os.path.exists(config):
+      j.status = JobState.Failed('Client specific TFTP config file already exists: %s' % config)
 
-  @property
-  def config(self):
-    return self.__config
+    ln('-s',
+       template,
+       config)
 
+  try:
+    yield
 
-  def create(self):
-    with job(self, 'Enable maintenance config', self.__host) as j:
-      if not os.path.exists(self.template):
-        j.status = JobState.States.Failed('Maintenance TFTP config template is missing: %s' % self.template)
+  finally:
+    with job(parent, 'Disable maintenance config', host) as j:
+      if not os.path.exists(config):
+        j.status = JobState.Skipped('Client specific TFTP config file does not exists: %s' % config)
 
-      if os.path.exists(self.config):
-        j.status = JobState.States.Failed('Client specific TFTP config file already exists: %s' % self.config)
-
-      ln('-s',
-         self.template,
-         self.config)
-
-
-  def remove(self):
-    with job(self, 'Disable maintenance config', self.__host) as j:
-      if not os.path.exists(self.config):
-        self.status = JobState.States.Skipped('Client specific TFTP config file does not exists: %s' % self.config)
-
-      rm(self.config)
+      rm(config)
 
 
 
@@ -64,9 +53,6 @@ class Acquire(Wakeup):
     Wakeup.__init__(self,
                     parent = parent,
                     host = host)
-
-    self.__maintenance_mgr = MaintenanceConfigManager(host = self.host)
-
 
 
   def check(self):
@@ -90,13 +76,8 @@ class Acquire(Wakeup):
 
 
   def run(self):
-    self.__maintenance_mgr.create()
-
-    try:
+    with maintenance_config_enabled(self, self.host):
       Wakeup.run(self)
-
-    finally:
-      self.__maintenance_mgr.remove()
 
 
 

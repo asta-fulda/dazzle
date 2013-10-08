@@ -8,8 +8,11 @@ import pkg_resources
 import blessings
 import contextlib
 import traceback
+import recordtype
 import os
 import sh
+import functools
+import enum
 
 
 
@@ -43,16 +46,15 @@ terminal_lock = threading.Lock()
 
 
 class JobState(object):
-  __metaclass__ = ABCMeta
+  pass
 
 
+
+class FinishedJobState(JobState):
   def __init__(self, message = None):
+    JobState.__init__(self)
+
     self.__message = message
-
-
-  @abstractproperty
-  def name(self):
-    pass
 
 
   @property
@@ -61,19 +63,17 @@ class JobState(object):
 
 
 
-JobState.States = Enum('Checking',
+JobState.New = type('New', (JobState,), {})
 
-                       'PreRunning',
-                       'Running',
-                       'PostRunning',
+JobState.Checking = type('Checking', (JobState,), {})
 
-                       'Finished',
-                       'Skipped',
-                       'Failed',
+JobState.PreRunning = type('PreRunning', (JobState,), {})
+JobState.Running = type('Running', (JobState,), {})
+JobState.PostRunning = type('PostRunning', (JobState,), {})
 
-                       value_type = lambda enum, i, key: type('JobState%s' % key,
-                                                              (JobState,),
-                                                              {'name' : property(lambda self: key)}))
+JobState.Success = type('Success', (FinishedJobState,), {})
+JobState.Skipped = type('Skipped', (FinishedJobState,), {})
+JobState.Failed = type('Failed', (FinishedJobState,), {})
 
 
 
@@ -81,16 +81,41 @@ class Job(object):
 
   def __init__(self, parent):
     self.__parent = parent
+    self.__childs = []
 
-    self.__state = None
+    if parent is not None:
+      parent.childs.append(self)
+      parent.__notify()
+
+    self.__state = JobState.New
     self.__progress = None
+
+    self.__listeners = set()
 
     object.__init__(self)
 
 
   @property
+  def manager(self):
+    return self.__parent.manager
+
+
+  @property
   def parent(self):
     return self.__parent
+
+
+  @property
+  def childs(self):
+    return self.__childs
+
+
+  @property
+  def level(self):
+    if self.parent is None:
+      return 0
+
+    return self.parent.level + 1
 
 
   @property
@@ -100,12 +125,10 @@ class Job(object):
 
   @state.setter
   def state(self, value):
-    assert type(value) in JobState.States
-
     self.__state = value
     self.__progress = None
 
-    JobManager.instance.update(self)
+    self.manager.update(self)
 
 
   @property
@@ -117,7 +140,17 @@ class Job(object):
   def progress(self, value):
     self.__progress = value
 
-    JobManager.instance.update(self)
+    self.manager.update(self)
+
+
+  @property
+  def listeners(self):
+    return self.__listeners
+
+
+  def __notify(self):
+    for listener in self.listeners:
+      listener(self)
 
 
   @abstractproperty
@@ -146,12 +179,12 @@ def job_error_handler(job):
     else:
       message = traceback.format_exc()
 
-    job.state = JobState.States.Failed(message.decode('utf-8'))
+    job.state = JobState.Failed(message.decode('utf-8'))
 
   except Exception:
     message = traceback.format_exc()
 
-    job.state = JobState.States.Failed(message.decode('utf-8'))
+    job.state = JobState.Failed(message.decode('utf-8'))
 
 
 
@@ -164,35 +197,60 @@ def job(parent, title, element = None):
   job = ContextJob(parent = parent)
 
   with job_error_handler(job):
-    running_state = job.state = JobState.States.Running()
+    running_state = job.state = JobState.Running()
 
     yield job
 
     # Jobs can set their state on it's own - don't mess around with it if it was
     # changed from the running state to something else
     if job.state == running_state:
-      job.state = JobState.States.Finished()
+      job.state = JobState.Success()
 
 
 
 class JobManager(object):
 
   state_format = {
-    JobState.States.Checking: terminal.bold_yellow(' .. '),
-    JobState.States.PreRunning: terminal.bold_cyan('>>') + terminal.cyan('> '),
-    JobState.States.Running: terminal.cyan('>') + terminal.bold_cyan('>>') + terminal.cyan('>'),
-    JobState.States.PostRunning: terminal.cyan(' >') + terminal.bold_cyan('>>'),
-    JobState.States.Finished: terminal.bold_green(' OK '),
-    JobState.States.Skipped: terminal.bold_blue(' ** '),
-    JobState.States.Failed: terminal.bold_red('!!!!'),
+    JobState.New: terminal.bold_black(' .. '),
+    JobState.Checking: terminal.bold_yellow(' ?? '),
+    JobState.PreRunning: terminal.bold_cyan('>>') + terminal.cyan('> '),
+    JobState.Running: terminal.cyan('>') + terminal.bold_cyan('>>') + terminal.cyan('>'),
+    JobState.PostRunning: terminal.cyan(' >') + terminal.bold_cyan('>>'),
+    JobState.Success: terminal.bold_green(' OK '),
+    JobState.Skipped: terminal.bold_blue(' ** '),
+    JobState.Failed: terminal.bold_red('!!!!'),
   }
+
+
+  class RootJob(Job):
+    title = None
+    element = None
+
+    def __init__(self, manager):
+      self.__manager = manager
+
+      Job.__init__(self, parent = None)
+
+    @property
+    def manager(self):
+      return self.__manager
 
 
   def __init__(self):
     object.__init__(self)
 
-    self.__jobs = list()
+#     self.__finished_jobs = set()
+#     self.__active_jobs = set()
 
+    self.__root = JobManager.RootJob(manager = self)
+#     self.__root.listeners += self.update()
+
+    self.__jobs = []
+
+
+  @property
+  def root(self):
+    return self.__root
 
   def __print_reset(self, n):
     terminal.stream.write('\r')
@@ -236,8 +294,6 @@ class JobManager(object):
 
   def update(self, updated_job):
     with terminal_lock:
-      terminal.stream.write('\r')
-
       if updated_job not in self.__jobs:
         # New job
         self.__jobs.append(updated_job)
@@ -245,8 +301,8 @@ class JobManager(object):
         self.__print_reset(0)
         self.__print_job(updated_job)
 
-      elif type(updated_job.state) in [JobState.States.Finished,
-                                       JobState.States.Skipped]:
+      elif type(updated_job.state) in [JobState.Success,
+                                       JobState.Skipped]:
         # Leaving job
         self.__jobs.remove(updated_job)
 
@@ -262,7 +318,7 @@ class JobManager(object):
         for job in self.__jobs:
           self.__print_job(job)
 
-      elif type(updated_job.state) == JobState.States.Failed:
+      elif type(updated_job.state) == JobState.Failed:
         # Failing job
         self.__print_sep()
         self.__print_job(updated_job)
@@ -287,7 +343,7 @@ class JobManager(object):
           self.__print_job(job)
 
 
-JobManager.instance = JobManager()
+job_manager = JobManager.instance = JobManager()
 
 
 
@@ -337,32 +393,32 @@ class Task(Job):
       # Run pre task(s)
       pre = self.pre
       if pre is not None:
-        self.state = JobState.States.PreRunning()
+        self.state = JobState.PreRunning()
         for task in saveiter(pre):
           task()
 
       # Check if task must run
-      self.state = JobState.States.Checking()
+      self.state = JobState.Checking()
       excuse = self.check()
 
       # Run the task if it's required
       if excuse is None:
-        self.state = JobState.States.Running()
+        self.state = JobState.Running()
         message = self.run()
 
       # Run post task(s)
       post = self.post
       if post is not None:
-        self.state = JobState.States.PostRunning()
+        self.state = JobState.PostRunning()
         for task in saveiter(post):
           task()
 
       # Update the status
       if excuse is None:
-        self.state = JobState.States.Finished(message)
+        self.state = JobState.Success(message)
 
       else:
-        self.state = JobState.States.Skipped(excuse)
+        self.state = JobState.Skipped(excuse)
 
 
   def __str__(self):
