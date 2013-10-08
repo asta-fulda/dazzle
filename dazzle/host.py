@@ -110,11 +110,31 @@ class HostSetAction(argparse.Action):
 
 
 
+class HostSetMixin(object):
+
+    @staticmethod
+    def argparser(parser):
+      parser.add_argument('-l', '--list',
+                          dest = '__hostlist__',
+                          metavar = 'HOSTLIST',
+                          type = HostList,
+                          required = True,
+                          help = 'the host list file')
+
+      parser.add_argument(dest = 'hosts',
+                          metavar = 'HOST',
+                          type = str,
+                          nargs = '+',
+                          action = HostSetAction,
+                          help = 'the hosts to run the task on')
+
+
+
 def group(taskcls):
   # Ensure given class is a host task class
   assert issubclass(taskcls, HostTask)
 
-  class Wrapped(Task):
+  class Wrapped(Task, HostSetMixin):
     def __init__(self, hosts, **kwargs):
       self.__hosts = hosts
 
@@ -157,19 +177,7 @@ def group(taskcls):
 
     @staticmethod
     def argparser(parser):
-      parser.add_argument('-l', '--list',
-                          dest = '__hostlist__',
-                          metavar = 'HOSTLIST',
-                          type = HostList,
-                          required = True,
-                          help = 'the host list file')
-
-      parser.add_argument(dest = 'hosts',
-                          metavar = 'HOST',
-                          type = str,
-                          nargs = '+',
-                          action = HostSetAction,
-                          help = 'the hosts to run the task on')
+      HostSetMixin.argparser(parser)
 
       # Check if subclass has arguments defined and attach it to the wrapper
       if hasattr(taskcls, 'argparser'):

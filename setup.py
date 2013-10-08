@@ -44,6 +44,8 @@ setuptools.setup(
       'acquire = dazzle.tasks.clone:AcquireGroup',
       'receive = dazzle.tasks.clone:ReceiveGroup',
 
+      'clone = dazzle.tasks.clone:Clone',
+
       'kernel = dazzle.tasks.bootimg:Kernel',
       'busybox = dazzle.tasks.bootimg:Busybox',
       'dropbear = dazzle.tasks.bootimg:Dropbear',

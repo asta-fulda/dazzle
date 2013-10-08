@@ -1,13 +1,12 @@
-from dazzle.host import HostTask, group
-
+from dazzle.host import HostTask, HostSetMixin, group
+from dazzle.task import Task, JobState, job
 from dazzle.commands import *
 from dazzle.utils import *
-from dazzle.task import JobState, job
 
 from dazzle.tasks.ctrl import Wakeup, Shutdown
 
 import re
-import itertools
+import sys
 import threading
 import humanize
 
@@ -104,8 +103,9 @@ class Receive(HostTask):
   udp_receiver_stat_re = re.compile(r'''
     ^
     bytes=\ *(?P<tran>
-      (([0-9]{1,3})\ )?
-      ([0-9]{1,3})
+      (([0-9]{1,3})
+      |([0-9]{1,3})\ ([0-9]{1,3})
+      |([0-9]{1,3})\ ([0-9]{1,3})\ ([0-9]{1,3}))
       (\ |M|K)
     )
     \ +\(
@@ -128,12 +128,12 @@ class Receive(HostTask):
 
   @property
   def event_ready(self):
-    self.__event_ready
+    return self.__event_ready
 
 
   @property
   def event_recvy(self):
-    self.__event_recvy
+    return self.__event_recvy
 
 
   @property
@@ -149,7 +149,7 @@ class Receive(HostTask):
   def run(self):
     stream = ssh(self.host,
                  'udp-receiver',
-                 '--mcast-rdv-address 224.0.0.1',
+                 '--mcast-rdv-address', '224.0.0.1',
                  '--nokbd',
                  '--file', self.__dst,
                  _err_bufsize = 0,
@@ -212,6 +212,75 @@ class Receive(HostTask):
                         required = True,
                         type = str,
                         help = 'the device to copy to')
+
+
+
+class Clone(Task, HostSetMixin):
+  ''' Clone to hosts '''
+
+  def __init__(self, hosts, src, dst):
+    self.__hosts = hosts
+
+    self.__src = src
+    self.__dst = dst
+
+    Task.__init__(self)
+
+
+  @property
+  def element(self):
+    return '[%s]' % ', '.join(str(host)
+                              for host
+                              in self.__hosts)
+
+
+  def run(self):
+    threads = {receiver: threading.Thread(target = receiver)
+               for receiver
+               in [Receive(host = host,
+                           dst = self.__dst)
+                   for host
+                   in self.__hosts]}
+
+    # Start receiver tasks
+    for receiver in threads.itervalues():
+      receiver.start()
+
+    # Wait for all task be ready
+    for receiver in threads.iterkeys():
+      receiver.event_ready.wait()
+
+    stream = sh.udp_sender('--mcast-rdv-address', '224.0.0.1',
+                           '--nokbd',
+                           '--interface', 'virbr0',
+                           '--min-receivers', len(threads),
+                           '--file', self.__src,
+                           _iter = 'err')
+
+    for line in stream:
+      self.progress = line[:-1]
+
+    # Wait for all task finish
+    for receiver in threads.itervalues():
+      receiver.join()
+
+
+  @staticmethod
+  def argparser(parser):
+    parser.add_argument('--src',
+                        dest = 'src',
+                        metavar = 'DEV',
+                        required = True,
+                        type = str,
+                        help = 'the device to copy from')
+    parser.add_argument('--dst',
+                        dest = 'dst',
+                        metavar = 'DEV',
+                        required = True,
+                        type = str,
+                        help = 'the device to copy to')
+
+    HostSetMixin.argparser(parser)
 
 
 
