@@ -42,8 +42,6 @@ setuptools.setup(
       'execute = dazzle.tasks.ctrl:ExecuteGroup',
 
       'acquire = dazzle.tasks.clone:AcquireGroup',
-      'release = dazzle.tasks.clone:ReleaseGroup',
-
       'receive = dazzle.tasks.clone:ReceiveGroup',
 
       'kernel = dazzle.tasks.bootimg:Kernel',

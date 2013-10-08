@@ -49,10 +49,10 @@ def ping(host,
 
 
 def ssh(host, *args, **kwargs):
-  sh.ssh('-o', 'UserKnownHostsFile=/dev/null',
-         '-o', 'StrictHostKeyChecking=no',
-         '-o', 'PasswordAuthentication=no',
-         '-l root',
-         host.l3addr,
-         *args,
-         **kwargs)
+  return sh.ssh('-o', 'UserKnownHostsFile=/dev/null',
+                '-o', 'StrictHostKeyChecking=no',
+                '-o', 'PasswordAuthentication=no',
+                '-l', 'root',
+                host.l3addr,
+                *args,
+                **kwargs)

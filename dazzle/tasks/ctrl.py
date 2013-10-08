@@ -83,7 +83,8 @@ class Shutdown(HostTask):
 
 
   def run(self):
-    ssh(self.host, 'poweroff')
+    ssh(self.host, 'poweroff',
+        _ok_code = [0, 255])
 
 
 
@@ -110,7 +111,7 @@ class Execute(HostTask):
   def run(self):
     self.progress = self.command
 
-    ssh(self.host, self.command)
+    return ssh(self.host, self.command)
 
 
   @staticmethod

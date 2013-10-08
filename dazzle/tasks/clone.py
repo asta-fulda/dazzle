@@ -2,7 +2,7 @@ from dazzle.host import HostTask, group
 
 from dazzle.commands import *
 from dazzle.utils import *
-from dazzle.task import JobState
+from dazzle.task import JobState, job
 
 from dazzle.tasks.ctrl import Wakeup, Shutdown
 
@@ -12,25 +12,70 @@ import humanize
 
 
 
-def ip2hex(host):
-  return ''.join('%02X' % int(i)
+class MaintenanceConfigManager(object):
+
+  def __init__(self, host):
+    self.__host = host
+
+    ip = ''.join('%02X' % int(i)
                  for
                  i in host.l3addr.split('.'))
 
+    self.__template = '/srv/tftp/pxelinux.cfg/maintenance'
+    self.__config = '/srv/tftp/pxelinux.cfg/%s' % ip
 
 
-class Acquire(HostTask):
-  ''' Enable maintenance mode '''
+  @property
+  def template(self):
+    return self.__template
+
+
+  @property
+  def config(self):
+    return self.__config
+
+
+  def create(self):
+    with job('Enable maintenance config', self.__host) as j:
+      if not os.path.exists(self.template):
+        j.status = JobState.States.Failed('Maintenance TFTP config template is missing: %s' % self.template)
+
+      if os.path.exists(self.config):
+        j.status = JobState.States.Failed('Client specific TFTP config file already exists: %s' % self.config)
+
+      ln('-s',
+         self.template,
+         self.config)
+
+
+  def remove(self):
+    with job('Disable maintenance config', self.__host) as j:
+      if not os.path.exists(self.config):
+        self.status = JobState.States.Skipped('Client specific TFTP config file does not exists: %s' % self.config)
+
+      rm(self.config)
+
+
+
+class Acquire(Wakeup):
+  ''' Boot host in maintenance mode '''
+
+  def __init__(self, host):
+    Wakeup.__init__(self, host)
+
+    self.__maintenance_mgr = MaintenanceConfigManager(host = self.host)
+
+
 
   def check(self):
+    if Wakeup.check(self) is None:
+      return None
+
     try:
       ssh(self.host, 'cat', '/etc/maintenance')
 
     except:
-      return True
-
-    else:
-      return False
+      return 'Host is already in maintenance mode'
 
 
   @property
@@ -39,45 +84,13 @@ class Acquire(HostTask):
 
 
   def run(self):
-    src = '/srv/tftp/pxelinux.cfg/maintenance'
-    dst = '/srv/tftp/pxelinux.cfg/%s' % ip2hex(self.host)
+    self.__maintenance_mgr.create()
 
-    if not os.path.exists(src):
-      self.status = JobState.States.Failed('Maintenance TFTP config is missing: %s' % src)
-
-    if os.path.exists(dst):
-      self.status = JobState.States.Failed('Client specific TFTP config already exists: %s' % dst)
-
-    ln(dst, src)
-
-
-  @property
-  def post(self):
-    return Wakeup(self.host)
-
-
-
-class Release(HostTask):
-  ''' Disable maintenance mode '''
-
-  def check(self):
     try:
-      ssh(self.host, 'cat', '/etc/maintenance')
+      Wakeup.run(self)
 
-    except:
-      return False
-
-    else:
-      return True
-
-
-  def run(self):
-    rm('/srv/tftp/pxelinux.cfg/%s' % ip2hex(self.host))
-
-
-  @property
-  def post(self):
-    return Shutdown(self.host)
+    finally:
+      self.__maintenance_mgr.remove()
 
 
 
@@ -124,7 +137,7 @@ class Receive(HostTask):
 
   @property
   def post(self):
-    return Release(self.host)
+    return Shutdown(self.host)
 
 
   def run(self):
@@ -169,5 +182,4 @@ class Receive(HostTask):
 
 
 AcquireGroup = group(Acquire)
-ReleaseGroup = group(Release)
 ReceiveGroup = group(Receive)

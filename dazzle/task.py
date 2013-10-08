@@ -157,13 +157,13 @@ def job(title, element = None):
   job = ContextJob()
 
   with job_error_handler(job):
-    job.state = JobState.States.Running()
+    running_state = job.state = JobState.States.Running()
 
     yield job
 
     # Jobs can set their state on it's own - don't mess around with it if it was
     # changed from the running state to something else
-    if type(job.state) == JobState.States.Running:
+    if job.state == running_state:
       job.state = JobState.States.Finished()
 
 
@@ -196,6 +196,7 @@ class JobManager(object):
     terminal.stream.write('%s%s\n' % (line,
                                       terminal.clear_eol))
 
+
   def __print_skip(self):
     terminal.stream.write('\n')
 
@@ -220,6 +221,7 @@ class JobManager(object):
     width = terminal.width - 9
 
     for line in message.split('\n'):
+      line = line.rstrip()
       for i in range(0, len(line), width - 1):
         self.__print_line(terminal.bold_white('       | ') + \
                           line[i:i + width])
@@ -338,7 +340,7 @@ class Task(Job):
       # Run the task if it's required
       if excuse is None:
         self.state = JobState.States.Running()
-        self.run()
+        message = self.run()
 
       # Run post task(s)
       post = self.post
@@ -349,7 +351,7 @@ class Task(Job):
 
       # Update the status
       if excuse is None:
-        self.state = JobState.States.Finished()
+        self.state = JobState.States.Finished(message)
 
       else:
         self.state = JobState.States.Skipped(excuse)
