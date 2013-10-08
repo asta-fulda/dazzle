@@ -315,6 +315,14 @@ class Dropbear(CompileTask):
         sh.make('thisclean',
                 _out = self.log)
 
+      with cd(self.workdir_src):
+        sh.sed('-i',
+               's' \
+               '|#define DEFAULT_PATH "/usr/bin:/bin"' \
+               '|#define DEFAULT_PATH "/usr/sbin:/sbin:/usr/bin:/bin"' \
+               '|g',
+               'options.h')
+
       sh.make(# 'STATIC=1',
               'all',
               '-j4',
@@ -575,8 +583,6 @@ class Image(BuildTask):
 
       with job('Copy system config files'):
         cp(resource('nsswitch.conf'),
-           'etc')
-        cp(resource('profile'),
            'etc')
 
       with job('Configure boot scripts'):

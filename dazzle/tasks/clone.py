@@ -7,6 +7,7 @@ from dazzle.task import JobState, job
 from dazzle.tasks.ctrl import Wakeup, Shutdown
 
 import re
+import itertools
 import threading
 import humanize
 
@@ -75,6 +76,9 @@ class Acquire(Wakeup):
       ssh(self.host, 'cat', '/etc/maintenance')
 
     except:
+      return None
+
+    else:
       return 'Host is already in maintenance mode'
 
 
@@ -99,13 +103,15 @@ class Receive(HostTask):
 
   udp_receiver_stat_re = re.compile(r'''
     ^
-    bytes=(?P<bytes>
-      (([0-9]{1,3})\ +)+
+    bytes=\ *(?P<tran>
+      (([0-9]{1,3})\ )?
+      ([0-9]{1,3})
+      (\ |M|K)
     )
     \ +\(
       (?P<mbps>
         (\d+(\.\d+)?)
-      \ +Mbps)
+      )\ +Mbps
     \)
     $
   ''', re.VERBOSE)
@@ -146,28 +152,56 @@ class Receive(HostTask):
                  '--mcast-rdv-address 224.0.0.1',
                  '--nokbd',
                  '--file', self.__dst,
+                 _err_bufsize = 0,
                  _iter = 'err')
 
+    def stream_lines(eol = '\n'):
+      line = ''
+      for x in stream:
+        if x != eol:
+          line += x
+
+        else:
+          yield line
+          line = ''
+
     # Wait for ready state and notify about it
-    for line in stream:
+    for line in stream_lines():
       if line.startswith('UDP receiver'): break
 
+    self.progress = 'Ready'
     self.__event_ready.set()
 
     # Wait for receiving state and notify about it
-    for line in stream:
+    for line in stream_lines():
       if line.startswith('Connected as'): break
 
+    self.progress = 'Connected'
     self.__event_recvy.set()
 
     # Get transfer status and update process
-    for line in stream:
+    for line in stream_lines(eol = '\r'):
       stats = self.udp_receiver_stat_re.match(line)
 
       if stats:
-        self.progress = '%(bytes)s @ %(mbps)s MB/s' % {'bytes' : humanize.naturalsize(stats.group('bytes'),
-                                                                                      binary = True),
-                                                       'mbps' : stats.groupd('mbps')}
+        tran = stats.group('tran').replace(' ', '')
+
+        if tran[-1] == 'M':
+          tran = int(tran[:-1]) * 1024 * 1024
+
+        elif tran[-1] == 'K':
+          tran = int(tran[:-1]) * 1024
+
+        else:
+          tran = int(tran)
+
+        tran = humanize.naturalsize(tran,
+                                    binary = True)
+
+        mbps = stats.group('mbps')
+
+        self.progress = '%(tran)s @ %(mbps)s MB/s' % {'tran' : tran,
+                                                       'mbps' : mbps}
 
 
   @staticmethod

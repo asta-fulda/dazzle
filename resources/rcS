@@ -27,5 +27,8 @@ udhcpc -S -b -i eth0 -s /etc/udhcpc/default.script
 # Enable multicast
 ip route add 224.0.0.0/4 dev eth0
 
+# Enable multicast ping
+echo 0 > /proc/sys/net/ipv4/icmp_echo_ignore_broadcasts
+
 # Starting ssh server
-/usr/sbin/dropbear -s
+PATH="/sbin:/usr/sbin:$PATH" /usr/sbin/dropbear -s

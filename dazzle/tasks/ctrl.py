@@ -4,6 +4,7 @@ from dazzle.task import JobState
 from dazzle.utils import *
 from dazzle.commands import *
 
+import time
 import re
 
 
@@ -85,6 +86,8 @@ class Shutdown(HostTask):
   def run(self):
     ssh(self.host, 'poweroff',
         _ok_code = [0, 255])
+
+    time.sleep(5)
 
 
 
