@@ -295,7 +295,7 @@ class JobManager(threading.Thread):
     self.daemon = True
     self.start()
 
-    terminal.stream.write('-' * terminal.width)
+    terminal.stream.write('-' * (terminal.width if terminal.is_a_tty else 80))
 
   @property
   def root(self):
@@ -317,7 +317,7 @@ class JobManager(threading.Thread):
                                       terminal.clear_eol))
 
     if job.state.message:
-      width = terminal.width - 9 if terminal.is_a_tty else 71
+      width = (terminal.width - 9) if terminal.is_a_tty else 71
 
       for line in job.state.message.split('\n'):
         line = line.rstrip()
