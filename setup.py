@@ -50,7 +50,7 @@ setuptools.setup(
       'kernel = dazzle.tasks.bootimg:Kernel',
       'busybox = dazzle.tasks.bootimg:Busybox',
       'dropbear = dazzle.tasks.bootimg:Dropbear',
-      'xzutils = dazzle.tasks.bootimg:XZUtils',
+      'lzoputils = dazzle.tasks.bootimg:LZOPUtils',
       'udpcast = dazzle.tasks.bootimg:UDPCast',
 
       'bootimg = dazzle.tasks.bootimg:Image',

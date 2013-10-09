@@ -384,8 +384,7 @@ class Dropbear(BuildTask):
                '|g',
                'options.h')
 
-      sh.make(# 'STATIC=1',
-              'all',
+      sh.make('all',
               '-j4',
               _out = self.log)
 
@@ -414,30 +413,23 @@ class Dropbear(BuildTask):
                     _out = self.log)
 
 
-class XZUtils(BuildTask):
-  ''' Download and build xz utils '''
+class LZOPUtils(BuildTask):
+  ''' Download and build lzop '''
 
   @property
   def project(self):
-    return 'xz'
+    return 'lzop'
 
 
   @property
   def url(self):
-    return 'http://tukaani.org/xz/xz-5.0.5.tar.xz'
+    return 'http://www.lzop.org/download/lzop-1.03.tar.gz'
 
 
   def compile(self, j):
     with cd(self.workdir_dst):
       sh.sh('%s/configure' % self.workdir_src,
             '--prefix', '/usr',
-            '--disable-lzma-links',
-            '--disable-lzmadec',
-            '--disable-lzmainfo',
-            '--disable-scripts',
-            '--disable-threads',
-            '--disable-xzdec',
-            '--disable-shared',
             _out = self.log)
 
       if not self.mudlark:
@@ -445,18 +437,17 @@ class XZUtils(BuildTask):
                 _out = self.log)
 
       sh.make('all',
-#               'LDFLAGS=--static',
               '-j4',
               _out = self.log)
 
 
   def install(self, j):
     with cd(self.workdir_dst):
-      # We don't need most of the stuff xz would install - so do it manually
+      # We don't need most of the stuff lzop would install - so do it manually
       sh.install('-d',
                  mkpath(self.target, 'usr/bin'))
       sh.install('-m755',
-                 'src/xz/xz',
+                 'src/lzop',
                  mkpath(self.target, 'usr/bin'))
 
 
@@ -485,7 +476,6 @@ class UDPCast(BuildTask):
                 _out = self.log)
 
       sh.make('all',
-#               'LDFLAGS=--static',
               '-j4',
               _out = self.log)
 
@@ -555,7 +545,7 @@ class Image(AssembleTask):
     self.__kernel = Kernel(parent = self, project = 'kernel', workspace = workspace)
     self.__busybox = Busybox(parent = self, project = 'busybox', workspace = workspace)
     self.__dropbear = Dropbear(parent = self, project = 'dropear', workspace = workspace)
-    self.__xzutils = XZUtils(parent = self, project = 'xz', workspace = workspace)
+    self.__lzoputils = LZOPUtils(parent = self, project = 'xz', workspace = workspace)
     self.__udpcast = UDPCast(parent = self, project = 'udpcast', workspace = workspace)
 
     self.__target = target
@@ -577,7 +567,7 @@ class Image(AssembleTask):
             self.__busybox,
             self.__dropbear,
             self.__udpcast,
-            self.__xzutils]
+            self.__lzoputils]
 
 
   def run(self):
