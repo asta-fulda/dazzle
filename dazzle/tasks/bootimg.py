@@ -594,6 +594,7 @@ class Image(AssembleTask):
             'lib',
             'proc',
             'sys',
+            'tmp'
         ]: mkdir(d)
 
         # Create initial device nodes
@@ -615,8 +616,6 @@ class Image(AssembleTask):
                    'c',
                    major,
                    minor)
-
-      cp('/usr/bin/ctorrent', 'usr/bin/ctorrent')
 
       with job(self, 'Copy NSS libraries'):
         libs = []
