@@ -135,7 +135,8 @@ def group(taskcls):
     def __init__(self, parent, hosts, **kwargs):
       self.__hosts = hosts
 
-      self.__tasks = [taskcls(host = host,
+      self.__tasks = [taskcls(parent = parent,
+                              host = host,
                               **kwargs)
                       for host
                       in hosts]

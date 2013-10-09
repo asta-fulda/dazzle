@@ -616,6 +616,8 @@ class Image(AssembleTask):
                    major,
                    minor)
 
+      cp('/usr/bin/ctorrent', 'usr/bin/ctorrent')
+
       with job(self, 'Copy NSS libraries'):
         libs = []
         for line in sh.Command('/sbin/ldconfig')('-p'):
