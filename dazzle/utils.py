@@ -48,11 +48,9 @@ def ping(host,
 
 
 
-def ssh(host, *args, **kwargs):
-  return sh.ssh('-o', 'UserKnownHostsFile=/dev/null',
-                '-o', 'StrictHostKeyChecking=no',
-                '-o', 'PasswordAuthentication=no',
-                '-l', 'root',
-                host.l3addr,
-                *args,
-                **kwargs)
+def ssh(host):
+  return sh.ssh.bake('-o', 'UserKnownHostsFile=/dev/null',
+                     '-o', 'StrictHostKeyChecking=no',
+                     '-o', 'PasswordAuthentication=no',
+                     '-l', 'root',
+                     host.l3addr)

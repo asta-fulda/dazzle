@@ -20,7 +20,7 @@ class Acquire(Wakeup):
       return None
 
     try:
-      ssh(self.host, 'cat', '/etc/maintenance')
+      ssh(self.host).cat('/etc/maintenance')
 
     except:
       return None
@@ -117,13 +117,13 @@ class Receive(HostTask):
 
 
   def run(self):
-    stream = ssh(self.host,
-                 'udp-receiver',
-                 '--mcast-rdv-address', '224.0.0.1',
-                 '--nokbd',
-                 '--file', self.__dst,
-                 _err_bufsize = 0,
-                 _iter = 'err')
+    stream = ssh(self.host)('udp-receiver',
+                            '--mcast-rdv-address', '224.0.0.1',
+                            '--nokbd',
+                            '--file', self.__dst,
+                            '--pipe', '"/usr/bin/lzop -dc"',
+                            _err_bufsize = 0,
+                            _iter = 'err')
 
     def stream_lines(eol = '\n'):
       line = ''
@@ -137,7 +137,7 @@ class Receive(HostTask):
 
     # Wait for ready state and notify about it
     for line in stream_lines():
-      if line.startswith('UDP receiver'): break
+      if line.startswith('Compressed UDP receiver'): break
 
     self.progress = 'Ready'
     self.__event_ready.set()
@@ -151,7 +151,7 @@ class Receive(HostTask):
 
     # Get transfer status and update process
     for line in stream_lines(eol = '\r'):
-      stats = self.udp_receiver_stat_re.match(line)
+      stats = self.udp_receiver_stat_re.match(line.strip())
 
       if stats:
         tran = stats.group('tran').replace(' ', '')
@@ -235,10 +235,11 @@ class Clone(Task, HostSetMixin):
                            '--interface', 'virbr0',
                            '--min-receivers', len(threads),
                            '--file', self.__src,
+                           '--pipe', '/usr/bin/lzop',
                            _iter = 'err')
 
     for line in stream:
-      stats = self.udp_sender_stat_re.match(line)
+      stats = self.udp_sender_stat_re.match(line.strip())
 
       if stats:
         tran = stats.group('tran').replace(' ', '')
