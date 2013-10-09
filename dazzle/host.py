@@ -133,16 +133,16 @@ def group(taskcls):
 
   class Wrapped(Task, HostSetMixin):
     def __init__(self, parent, hosts, **kwargs):
+      Task.__init__(self,
+                    parent = parent)
+
       self.__hosts = hosts
 
-      self.__tasks = [taskcls(parent = parent,
+      self.__tasks = [taskcls(parent = self,
                               host = host,
                               **kwargs)
                       for host
                       in hosts]
-
-      Task.__init__(self,
-                    parent = parent)
 
 
     @property
