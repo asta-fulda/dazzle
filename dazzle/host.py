@@ -80,15 +80,11 @@ class HostList(object):
 
 class HostTask(Task):
   def __init__(self, parent, host):
-    self.__host = host
-
     Task.__init__(self,
-                  parent = parent)
+                  parent = parent,
+                  element = host)
 
-
-  @property
-  def element(self):
-    return self.host
+    self.__host = host
 
 
   @property

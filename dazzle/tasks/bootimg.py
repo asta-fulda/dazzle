@@ -15,21 +15,30 @@ class BuildTask(Task):
   element = property(lambda self: None)
 
 
-  def __init__(self, parent, workspace = None):
+  def __init__(self,
+               parent,
+               project,
+               target,
+               workspace = None):
+    Task.__init__(self,
+                  parent = parent,
+                  element = None)
+
+    self.__project = project
+
+    self.__target = target
+
     if workspace is None:
-      self.__workspace = mkdtemp(prefix = 'dazzle-kernel-')
-      self.__workspace_tmp = True
+      self.__workdir = mkdtemp(prefix = 'dazzle-kernel-')
+      self.__mudlark = False
 
     else:
-      self.__workspace = workspace
-      self.__workspace_tmp = False
+      self.__workdir = mkpath(workspace, project)
+      self.__mudlark = True
 
-    mkdir(self.__workspace)
+    mkdir(self.__workdir)
 
-    self.__log = open(self.workdir + '.log', 'wa')
-
-    Task.__init__(self,
-                  parent = parent)
+    self.__log = open(mkpath(self.workdir, 'log'), 'wa')
 
 
   @property
@@ -38,38 +47,33 @@ class BuildTask(Task):
 
 
   @property
-  def workspace(self):
-    return self.__workspace
+  def project(self):
+    return self.__project
 
 
   @property
-  def workspace_tmp(self):
-    return self.__workspace_tmp
-
-
-  @abstractproperty
-  def project(self):
-    pass
+  def target(self):
+    return self.__target
 
 
   @property
   def workdir(self):
-    return mkpath(self.workspace, self.project)
+    return self.__workdir
 
 
-  @abstractmethod
-  def target(self):
-    pass
+  @property
+  def mudlark(self):
+    return self.__mudlark
 
 
   def __del__(self):
     self.__log.close()
 
-    if self.workspace_tmp:
+    if not self.mudlark:
       with job(self, 'Cleaning up'):
-        rmtree(self.__workspace)
+        rmtree(self.__workdir)
 
-    self.__workspace = None
+    self.__workdir = None
 
 
   @staticmethod
@@ -85,15 +89,18 @@ class BuildTask(Task):
 
 class CompileTask(BuildTask):
 
-  def __init__(self, parent, workspace, target):
+  def __init__(self,
+               parent,
+               project,
+               workspace):
     BuildTask.__init__(self,
                        parent = parent,
+                       project = project,
+                       target = parent.workdir,
                        workspace = workspace)
 
     self.__workdir_src = mkpath(self.workdir, 'src')
     self.__workdir_dst = mkpath(self.workdir, 'dst')
-
-    self.__target = target
 
 
   @property
@@ -104,11 +111,6 @@ class CompileTask(BuildTask):
   @property
   def workdir_dst(self):
     return self.__workdir_dst
-
-
-  @property
-  def target(self):
-    return self.__target
 
 
   @abstractproperty
@@ -130,7 +132,7 @@ class CompileTask(BuildTask):
   def download(self, j):
     archive_file, _ = self.archive
 
-    if not self.workspace_tmp and os.path.exists(mkpath(self.workdir, archive_file)):
+    if self.mudlark and os.path.exists(mkpath(self.workdir, archive_file)):
       j.state = JobState.Skipped(('Using existing file: %s' % mkpath(self.workdir, archive_file)))
       return
 
@@ -204,7 +206,7 @@ class Kernel(CompileTask):
 
   def compile(self, j):
     with cd(self.workdir_src):
-      if self.workspace_tmp:
+      if not self.mudlark:
         sh.make('O=%s' % self.workdir_dst,
                 'clean',
                 _out = self.log)
@@ -266,7 +268,7 @@ class Busybox(CompileTask):
 
   def compile(self, j):
     with cd(self.workdir_src):
-      if self.workspace_tmp:
+      if not self.mudlark:
         sh.make('O=%s' % self.workdir_dst,
                 'clean',
                 _out = self.log)
@@ -314,7 +316,7 @@ class Dropbear(CompileTask):
             '--enable-bundled-libtom',
             _out = self.log)
 
-      if self.workspace_tmp:
+      if not self.mudlark:
         sh.make('thisclean',
                 _out = self.log)
 
@@ -382,7 +384,7 @@ class XZUtils(CompileTask):
             '--disable-shared',
             _out = self.log)
 
-      if self.workspace_tmp:
+      if not self.mudlark:
         sh.make('clean',
                 _out = self.log)
 
@@ -422,7 +424,7 @@ class UDPCast(CompileTask):
             '--prefix', '/usr',
             _out = self.log)
 
-      if self.workspace_tmp:
+      if not self.mudlark:
         sh.make('clean',
                 _out = self.log)
 
@@ -484,16 +486,21 @@ class Image(BuildTask):
   ''', re.VERBOSE)
 
 
-  def __init__(self, parent, workspace, target):
+  def __init__(self,
+               parent,
+               workspace,
+               target):
     BuildTask.__init__(self,
                        parent = parent,
+                       project = 'image',
+                       target = target,
                        workspace = workspace)
 
-    self.__kernel = Kernel(parent = parent, workspace = workspace, target = self.workdir)
-    self.__busybox = Busybox(parent = parent, workspace = workspace, target = self.workdir)
-    self.__dropbear = Dropbear(parent = parent, workspace = workspace, target = self.workdir)
-    self.__xzutils = XZUtils(parent = parent, workspace = workspace, target = self.workdir)
-    self.__udpcast = UDPCast(parent = parent, workspace = workspace, target = self.workdir)
+    self.__kernel = Kernel(parent = self, project = 'kernel', workspace = workspace)
+    self.__busybox = Busybox(parent = self, project = 'busybox', workspace = workspace)
+    self.__dropbear = Dropbear(parent = self, project = 'dropear', workspace = workspace)
+    self.__xzutils = XZUtils(parent = self, project = 'xz', workspace = workspace)
+    self.__udpcast = UDPCast(parent = self, project = 'udpcast', workspace = workspace)
 
     self.__target = target
 
@@ -520,7 +527,7 @@ class Image(BuildTask):
   def run(self):
     with cd(self.workdir):
 
-      if self.workspace_tmp:
+      if not self.mudlark:
         rm('*')
 
       with job(self, 'Create base layout'):

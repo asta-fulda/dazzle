@@ -6,54 +6,14 @@ from dazzle.utils import *
 from dazzle.tasks.ctrl import Wakeup, Shutdown
 
 import re
-import sys
-import contextlib
 import threading
 import humanize
 
 
 
-@contextlib.contextmanager
-def maintenance_config_enabled(parent, host):
-  ip = ''.join('%02X' % int(i)
-               for
-               i in host.l3addr.split('.'))
-
-  template = '/srv/tftp/pxelinux.cfg/maintenance'
-  config = '/srv/tftp/pxelinux.cfg/%s' % ip
-
-
-  with job(parent, 'Enable maintenance config', host) as j:
-    if not os.path.exists(template):
-      j.status = JobState.Failed('Maintenance TFTP config template is missing: %s' % template)
-
-    if os.path.exists(config):
-      j.status = JobState.Failed('Client specific TFTP config file already exists: %s' % config)
-
-    ln('-s',
-       template,
-       config)
-
-  try:
-    yield
-
-  finally:
-    with job(parent, 'Disable maintenance config', host) as j:
-      if not os.path.exists(config):
-        j.status = JobState.Skipped('Client specific TFTP config file does not exists: %s' % config)
-
-      rm(config)
-
-
 
 class Acquire(Wakeup):
   ''' Boot host in maintenance mode '''
-
-  def __init__(self, parent, host):
-    Wakeup.__init__(self,
-                    parent = parent,
-                    host = host)
-
 
   def check(self):
     if Wakeup.check(self) is None:
@@ -76,8 +36,33 @@ class Acquire(Wakeup):
 
 
   def run(self):
-    with maintenance_config_enabled(self, self.host):
+    ip = ''.join('%02X' % int(i)
+               for
+               i in self.host.l3addr.split('.'))
+
+    template = '/srv/tftp/pxelinux.cfg/maintenance'
+    config = '/srv/tftp/pxelinux.cfg/%s' % ip
+
+    with job(self, 'Enable maintenance config', self.host) as j:
+      if not os.path.exists(template):
+        j.status = JobState.Failed('Maintenance TFTP config template is missing: %s' % template)
+
+      if os.path.exists(config):
+        j.status = JobState.Failed('Client specific TFTP config file already exists: %s' % config)
+
+      ln('-s',
+         template,
+         config)
+
+    try:
       Wakeup.run(self)
+
+    finally:
+      with job(self, 'Disable maintenance config', self.host) as j:
+        if not os.path.exists(config):
+          j.status = JobState.Skipped('Client specific TFTP config file does not exists: %s' % config)
+
+        rm(config)
 
 
 
@@ -102,14 +87,14 @@ class Receive(HostTask):
 
 
   def __init__(self, parent, host, dst):
+    HostTask.__init__(self,
+                      parent = parent,
+                      host = host)
+
     self.__dst = dst
 
     self.__event_ready = threading.Event()
     self.__event_recvy = threading.Event()
-
-    HostTask.__init__(self,
-                      parent = parent,
-                      host = host)
 
 
   @property
@@ -206,21 +191,29 @@ class Receive(HostTask):
 class Clone(Task, HostSetMixin):
   ''' Clone to hosts '''
 
+  udp_sender_stat_re = re.compile(r'''
+    ^
+    bytes=\ *(?P<tran>
+      (([0-9]{1,3})
+      |([0-9]{1,3})\ ([0-9]{1,3})
+      |([0-9]{1,3})\ ([0-9]{1,3})\ ([0-9]{1,3}))
+      (\ |M|K)
+    )
+    \ +.*
+    $
+  ''', re.VERBOSE)
+
   def __init__(self, parent, hosts, src, dst):
+    Task.__init__(self,
+                  parent = parent,
+                  element = '[%s]' % ', '.join(str(host)
+                                               for host
+                                               in hosts))
+
     self.__hosts = hosts
 
     self.__src = src
     self.__dst = dst
-
-    Task.__init__(self,
-                  parent = parent)
-
-
-  @property
-  def element(self):
-    return '[%s]' % ', '.join(str(host)
-                              for host
-                              in self.__hosts)
 
 
   def run(self):
@@ -248,7 +241,22 @@ class Clone(Task, HostSetMixin):
                            _iter = 'err')
 
     for line in stream:
-      self.progress = line[:-1]
+      stats = self.udp_sender_stat_re.match(line)
+
+      if stats:
+        tran = stats.group('tran').replace(' ', '')
+
+        if tran[-1] == 'M':
+          tran = int(tran[:-1]) * 1024 * 1024
+
+        elif tran[-1] == 'K':
+          tran = int(tran[:-1]) * 1024
+
+        else:
+          tran = int(tran)
+
+        self.progress = humanize.naturalsize(tran,
+                                             binary = True)
 
     # Wait for all task finish
     for receiver in threads.itervalues():

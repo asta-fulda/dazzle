@@ -28,15 +28,15 @@ class Wakeup(HostTask):
 
 
   def __init__(self, parent, host):
+    HostTask.__init__(self,
+                      parent = parent,
+                      host = host)
+
     try:
       self.__etherwake = sh.etherwake
 
     except:
       self.__etherwake = sh.ether_wake
-
-    HostTask.__init__(self,
-                      parent = parent,
-                      host = host)
 
 
   def check(self):

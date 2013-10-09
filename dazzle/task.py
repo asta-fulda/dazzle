@@ -1,5 +1,4 @@
 from abc import ABCMeta, abstractmethod, abstractproperty
-from enum import Enum
 
 import inspect
 import threading
@@ -8,11 +7,8 @@ import pkg_resources
 import blessings
 import contextlib
 import traceback
-import recordtype
 import os
 import sh
-import functools
-import enum
 
 
 
@@ -63,8 +59,6 @@ class FinishedJobState(JobState):
 
 
 
-JobState.New = type('New', (JobState,), {})
-
 JobState.Checking = type('Checking', (JobState,), {})
 
 JobState.PreRunning = type('PreRunning', (JobState,), {})
@@ -79,7 +73,10 @@ JobState.Failed = type('Failed', (FinishedJobState,), {})
 
 class Job(object):
 
-  def __init__(self, parent):
+  def __init__(self,
+               parent,
+               title,
+               element = None):
     self.__parent = parent
     self.__childs = []
 
@@ -87,7 +84,11 @@ class Job(object):
       parent.childs.append(self)
       parent.__notify()
 
-    self.__state = JobState.New
+    self.__title = title
+
+    self.__element = element
+
+    self.__state = None
     self.__progress = None
 
     self.__listeners = set()
@@ -153,14 +154,14 @@ class Job(object):
       listener(self)
 
 
-  @abstractproperty
+  @property
   def title(self):
-    pass
+    return self.__title
 
 
-  @abstractproperty
+  @property
   def element(self):
-    pass
+    return self.__element
 
 
 
@@ -194,7 +195,9 @@ def job(parent, title, element = None):
     title = property(lambda self: title)
     element = property(lambda self: element)
 
-  job = ContextJob(parent = parent)
+  job = Job(parent = parent,
+            title = title,
+            element = element)
 
   with job_error_handler(job):
     running_state = job.state = JobState.Running()
@@ -211,8 +214,7 @@ def job(parent, title, element = None):
 class JobManager(object):
 
   state_format = {
-    JobState.New: terminal.bold_black(' .. '),
-    JobState.Checking: terminal.bold_yellow(' ?? '),
+    JobState.Checking: terminal.bold_yellow(' .. '),
     JobState.PreRunning: terminal.bold_cyan('>>') + terminal.cyan('> '),
     JobState.Running: terminal.cyan('>') + terminal.bold_cyan('>>') + terminal.cyan('>'),
     JobState.PostRunning: terminal.cyan(' >') + terminal.bold_cyan('>>'),
@@ -223,13 +225,13 @@ class JobManager(object):
 
 
   class RootJob(Job):
-    title = None
-    element = None
-
     def __init__(self, manager):
       self.__manager = manager
 
-      Job.__init__(self, parent = None)
+      Job.__init__(self,
+                   parent = None,
+                   title = None,
+                   element = None)
 
     @property
     def manager(self):
@@ -239,11 +241,7 @@ class JobManager(object):
   def __init__(self):
     object.__init__(self)
 
-#     self.__finished_jobs = set()
-#     self.__active_jobs = set()
-
     self.__root = JobManager.RootJob(manager = self)
-#     self.__root.listeners += self.update()
 
     self.__jobs = []
 
@@ -351,21 +349,13 @@ class Task(Job):
   __metaclass__ = ABCMeta
 
 
-  def __init__(self, parent):
-    self.__title = inspect.getdoc(self).split('\n')[0].strip()
-
+  def __init__(self,
+               parent,
+               element):
     Job.__init__(self,
-                 parent = parent)
-
-
-  @property
-  def title(self):
-    return self.__title
-
-
-  @abstractproperty
-  def element(self):
-    pass
+                 parent = parent,
+                 title = inspect.getdoc(self).split('\n')[0].strip(),
+                 element = element)
 
 
   @abstractmethod
@@ -419,9 +409,3 @@ class Task(Job):
 
       else:
         self.state = JobState.Skipped(excuse)
-
-
-  def __str__(self):
-    return '<%s(%s) @ %s>' % (self.__class__.__name__,
-                             self.title,
-                             self.element)
