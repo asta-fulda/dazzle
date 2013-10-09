@@ -243,23 +243,24 @@ def job(parent, title, element = None):
 class JobManager(threading.Thread):
 
   state_format = {
-    JobState.Checking: [terminal.bold_yellow('..') + terminal.yellow('..'),
-                        terminal.yellow('.') + terminal.bold_yellow('..') + terminal.yellow('.'),
-                        terminal.yellow('..') + terminal.bold_yellow('..'),
-                        terminal.bold_yellow('.') + terminal.yellow('..') + terminal.bold_yellow('.')],
+    JobState.Checking: [terminal.bold_yellow('.') + terminal.yellow('.') + terminal.bold_yellow('.') + terminal.yellow('.'),
+                        terminal.yellow('.') + terminal.bold_yellow('.') + terminal.yellow('.') + terminal.bold_yellow('.')],
 
-    JobState.PreRunning: [terminal.bold_cyan('>>') + terminal.cyan('> '),
+    JobState.PreRunning: [terminal.bold_cyan('>') + terminal.cyan('>> '),
+                          terminal.bold_cyan('>>') + terminal.cyan('> '),
                           terminal.cyan('>') + terminal.bold_cyan('>> '),
-                          terminal.bold_cyan('>') + terminal.cyan('>') + terminal.bold_cyan('> ')],
+                          terminal.cyan('>>') + terminal.bold_cyan('> ')],
 
-    JobState.Running: [terminal.bold_cyan('>>') + terminal.cyan('>>'),
+    JobState.Running: [terminal.bold_cyan('>') + terminal.cyan('>>>'),
+                       terminal.bold_cyan('>>') + terminal.cyan('>>'),
                        terminal.cyan('>') + terminal.bold_cyan('>>') + terminal.cyan('>'),
                        terminal.cyan('>>') + terminal.bold_cyan('>>'),
-                       terminal.bold_cyan('>') + terminal.cyan('>>') + terminal.bold_cyan('>')],
+                       terminal.cyan('>>>') + terminal.bold_cyan('>')],
 
-    JobState.PostRunning: [terminal.bold_cyan(' >>') + terminal.cyan('>'),
+    JobState.PostRunning: [terminal.bold_cyan(' >') + terminal.cyan('>>'),
+                           terminal.bold_cyan(' >>') + terminal.cyan('>'),
                            terminal.cyan(' >') + terminal.bold_cyan('>>'),
-                           terminal.bold_cyan(' >') + terminal.cyan('>') + terminal.bold_cyan('>')],
+                           terminal.cyan(' >>') + terminal.bold_cyan('>')],
 
     JobState.Success: terminal.bold_green(' OK '),
     JobState.Skipped: terminal.bold_blue(' ** '),
