@@ -1,4 +1,4 @@
-from abc import ABCMeta, abstractmethod, abstractproperty
+from abc import ABCMeta, abstractmethod
 
 import inspect
 import threading
@@ -7,6 +7,7 @@ import pkg_resources
 import blessings
 import contextlib
 import traceback
+import time
 import os
 import sh
 
@@ -42,7 +43,13 @@ terminal_lock = threading.Lock()
 
 
 class JobState(object):
-  pass
+  antecedent = []
+
+
+
+class ActiveJobState(JobState):
+  def __init__(self):
+    JobState.__init__(self)
 
 
 
@@ -59,15 +66,33 @@ class FinishedJobState(JobState):
 
 
 
-JobState.Checking = type('Checking', (JobState,), {})
+JobState.Checking = type('Checking', (ActiveJobState,), {})
+JobState.Checking.antecedent = [type(None)]
 
-JobState.PreRunning = type('PreRunning', (JobState,), {})
-JobState.Running = type('Running', (JobState,), {})
-JobState.PostRunning = type('PostRunning', (JobState,), {})
+JobState.PreRunning = type('PreRunning', (ActiveJobState,), {})
+JobState.PreRunning.antecedent = [type(None),
+                                  JobState.Checking]
+
+JobState.Running = type('Running', (ActiveJobState,), {})
+JobState.Running.antecedent = [type(None),
+                               JobState.Checking,
+                               JobState.PreRunning]
+
+JobState.PostRunning = type('PostRunning', (ActiveJobState,), {})
+JobState.PostRunning.antecedent = [JobState.Running]
 
 JobState.Success = type('Success', (FinishedJobState,), {})
+JobState.Success.antecedent = [JobState.Running,
+                               JobState.PostRunning]
+
 JobState.Skipped = type('Skipped', (FinishedJobState,), {})
+JobState.Skipped.antecedent = [JobState.Checking]
+
 JobState.Failed = type('Failed', (FinishedJobState,), {})
+JobState.Failed.antecedent = [JobState.Checking,
+                              JobState.PreRunning,
+                              JobState.Running,
+                              JobState.PostRunning]
 
 
 
@@ -125,11 +150,17 @@ class Job(object):
 
 
   @state.setter
-  def state(self, value):
-    self.__state = value
+  def state(self, new_state):
+    assert type(self.__state) in type(new_state).antecedent
+
+    old_state = self.__state
+    self.__state = new_state
+
     self.__progress = None
 
-    self.manager.update(self)
+    self.manager.update(self,
+                        old_state = old_state,
+                        new_state = new_state)
 
 
   @property
@@ -141,7 +172,9 @@ class Job(object):
   def progress(self, value):
     self.__progress = value
 
-    self.manager.update(self)
+    self.manager.update(self,
+                        old_state = self.state,
+                        new_state = self.state)
 
 
   @property
@@ -166,7 +199,7 @@ class Job(object):
 
 
 @contextlib.contextmanager
-def job_error_handler(job):
+def job_exception_handler(job):
   try:
     yield
 
@@ -191,15 +224,11 @@ def job_error_handler(job):
 
 @contextlib.contextmanager
 def job(parent, title, element = None):
-  class ContextJob(Job):
-    title = property(lambda self: title)
-    element = property(lambda self: element)
-
   job = Job(parent = parent,
             title = title,
             element = element)
 
-  with job_error_handler(job):
+  with job_exception_handler(job):
     running_state = job.state = JobState.Running()
 
     yield job
@@ -211,13 +240,27 @@ def job(parent, title, element = None):
 
 
 
-class JobManager(object):
+class JobManager(threading.Thread):
 
   state_format = {
-    JobState.Checking: terminal.bold_yellow(' .. '),
-    JobState.PreRunning: terminal.bold_cyan('>>') + terminal.cyan('> '),
-    JobState.Running: terminal.cyan('>') + terminal.bold_cyan('>>') + terminal.cyan('>'),
-    JobState.PostRunning: terminal.cyan(' >') + terminal.bold_cyan('>>'),
+    JobState.Checking: [terminal.bold_yellow('..') + terminal.yellow('..'),
+                        terminal.yellow('.') + terminal.bold_yellow('..') + terminal.yellow('.'),
+                        terminal.yellow('..') + terminal.bold_yellow('..'),
+                        terminal.bold_yellow('.') + terminal.yellow('..') + terminal.bold_yellow('.')],
+
+    JobState.PreRunning: [terminal.bold_cyan('>>') + terminal.cyan('> '),
+                          terminal.cyan('>') + terminal.bold_cyan('>> '),
+                          terminal.bold_cyan('>') + terminal.cyan('>') + terminal.bold_cyan('> ')],
+
+    JobState.Running: [terminal.bold_cyan('>>') + terminal.cyan('>>'),
+                       terminal.cyan('>') + terminal.bold_cyan('>>') + terminal.cyan('>'),
+                       terminal.cyan('>>') + terminal.bold_cyan('>>'),
+                       terminal.bold_cyan('>') + terminal.cyan('>>') + terminal.bold_cyan('>')],
+
+    JobState.PostRunning: [terminal.bold_cyan(' >>') + terminal.cyan('>'),
+                           terminal.cyan(' >') + terminal.bold_cyan('>>'),
+                           terminal.bold_cyan(' >') + terminal.cyan('>') + terminal.bold_cyan('>')],
+
     JobState.Success: terminal.bold_green(' OK '),
     JobState.Skipped: terminal.bold_blue(' ** '),
     JobState.Failed: terminal.bold_red('!!!!'),
@@ -226,12 +269,13 @@ class JobManager(object):
 
   class RootJob(Job):
     def __init__(self, manager):
-      self.__manager = manager
-
       Job.__init__(self,
                    parent = None,
                    title = None,
                    element = None)
+
+      self.__manager = manager
+
 
     @property
     def manager(self):
@@ -239,106 +283,113 @@ class JobManager(object):
 
 
   def __init__(self):
-    object.__init__(self)
+    threading.Thread.__init__(self)
 
     self.__root = JobManager.RootJob(manager = self)
 
-    self.__jobs = []
+    self.__active_jobs = set()
 
+    self.__animation_ticks = 0
+
+    self.daemon = True
+    self.start()
+
+    terminal.stream.write('-' * terminal.width)
 
   @property
   def root(self):
     return self.__root
 
-  def __print_reset(self, n):
-    terminal.stream.write('\r')
-    terminal.stream.write(terminal.move_up * n)
 
-
-  def __print_line(self, line = ''):
-    terminal.stream.write('%s%s\n' % (line,
-                                      terminal.clear_eol))
-
-
-  def __print_skip(self):
-    terminal.stream.write('\n')
-
-
-  def __print_job(self, job):
+  @staticmethod
+  def __print_backlog(job):
     line = terminal.bold_white('[ ') + \
            JobManager.state_format[type(job.state)] + \
            terminal.bold_white(' ] ')
 
-    if job.title is not None: line += '%s' % job.title
-    if job.element is not None: line += ': %s' % job.element
-    if job.progress is not None: line += ' (%s)' % job.progress
+    line += job.title
 
-    self.__print_line(line)
+    if job.element is not None:
+      line += ': %s' % job.element
 
+    terminal.stream.write('%s%s\n' % (line,
+                                      terminal.clear_eol))
 
-  def __print_sep(self):
-    self.__print_line(terminal.bold_black('-' * terminal.width))
+    if job.state.message:
+      width = terminal.width - 9 if terminal.is_a_tty else 71
 
-
-  def __print_message(self, message):
-    width = terminal.width - 9
-
-    for line in message.split('\n'):
-      line = line.rstrip()
-      for i in range(0, len(line), width - 1):
-        self.__print_line(terminal.bold_white('       | ') + \
-                          line[i:i + width])
+      for line in job.state.message.split('\n'):
+        line = line.rstrip()
+        for i in range(0, len(line), width - 1):
+          terminal.stream.write('%s%s%s\n' % (terminal.bold_white('       : '),
+                                              line[i:i + width],
+                                              terminal.clear_eol))
 
 
-  def update(self, updated_job):
+  def update(self, updated_job, old_state, new_state):
     with terminal_lock:
-      if updated_job not in self.__jobs:
-        # New job
-        self.__jobs.append(updated_job)
+      # Unwind active block
+      terminal.stream.write('\r')
+      terminal.stream.write(terminal.move_up * len(self.__active_jobs))
 
-        self.__print_reset(0)
-        self.__print_job(updated_job)
+      if (type(old_state) == type(None) and
+          type(new_state) != type(None)):
+        # New job started
+        self.__active_jobs.add(updated_job)
 
-      elif type(updated_job.state) in [JobState.Success,
-                                       JobState.Skipped]:
-        # Leaving job
-        self.__jobs.remove(updated_job)
+      if type(new_state) in [JobState.Success,
+                             JobState.Skipped]:
+        # Job finished
+        self.__print_backlog(updated_job)
 
-        # Print the finished job topmost
-        self.__print_reset(len(self.__jobs) + 1)
-        self.__print_job(updated_job)
+      if type(new_state) in [JobState.Success,
+                             JobState.Skipped,
+                             JobState.Failed]:
+        # Job ended
+        self.__active_jobs.remove(updated_job)
 
-        # Print the message if it exists
-        if updated_job.state.message is not None:
-          self.__print_message(updated_job.state.message)
+      # Progress or state update - redraw active block
+      def print_childs(parent):
+        for job in parent.childs:
+          if job.state is None or job not in self.__active_jobs:
+            continue
 
-        # Print remaining jobs
-        for job in self.__jobs:
-          self.__print_job(job)
+          frames = JobManager.state_format[type(job.state)]
 
-      elif type(updated_job.state) == JobState.Failed:
-        # Failing job
-        self.__print_sep()
-        self.__print_job(updated_job)
+          line = terminal.bold_white('[ ') + \
+                 frames[self.__animation_ticks % len(frames)] + \
+                 terminal.bold_white(' ] ')
 
-        # Check if we have message and print it
-        if updated_job.state.message is not None:
-          self.__print_message(updated_job.state.message)
+          line += '  ' * (job.level - 1)
+
+          if job.title is not None: line += '%s' % job.title
+          if job.element is not None: line += ': %s' % job.element
+          if job.progress is not None: line += ' (%s)' % job.progress
+
+          terminal.stream.write('%s%s\n' % (line,
+                                            terminal.clear_eol))
+
+          print_childs(job)
+
+      print_childs(self.root)
+
+      if type(new_state) == JobState.Failed:
+        # Job failed
+        self.__print_backlog(updated_job)
 
         # Hard exiting of the process
         os._exit(1)
 
-      else:
-        # Updated job
-        self.__print_reset(len(self.__jobs))
 
-        for job in self.__jobs:
-          # Test if we have to reprint the line - and skip it if not
-          if job != updated_job:
-            self.__print_skip()
-            continue
+  def run(self):
+    while True:
+      time.sleep(1)
 
-          self.__print_job(job)
+      self.__animation_ticks += 1
+
+      self.update(updated_job = None,
+                  old_state = None,
+                  new_state = None)
 
 
 job_manager = JobManager.instance = JobManager()
@@ -351,10 +402,11 @@ class Task(Job):
 
   def __init__(self,
                parent,
-               element):
+               title = None,
+               element = None):
     Job.__init__(self,
                  parent = parent,
-                 title = inspect.getdoc(self).split('\n')[0].strip(),
+                 title = title or inspect.getdoc(self).split('\n')[0].strip(),
                  element = element)
 
 
@@ -378,7 +430,15 @@ class Task(Job):
 
 
   def __call__(self):
-    with job_error_handler(self):
+    with job_exception_handler(self):
+
+      # Check if task must run
+      self.state = JobState.Checking()
+      excuse = self.check()
+
+      if excuse is not None:
+        self.state = JobState.Skipped(excuse)
+        return
 
       # Run pre task(s)
       pre = self.pre
@@ -386,10 +446,6 @@ class Task(Job):
         self.state = JobState.PreRunning()
         for task in saveiter(pre):
           task()
-
-      # Check if task must run
-      self.state = JobState.Checking()
-      excuse = self.check()
 
       # Run the task if it's required
       if excuse is None:
@@ -404,8 +460,4 @@ class Task(Job):
           task()
 
       # Update the status
-      if excuse is None:
-        self.state = JobState.Success(message)
-
-      else:
-        self.state = JobState.Skipped(excuse)
+      self.state = JobState.Success(message)

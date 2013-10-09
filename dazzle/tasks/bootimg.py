@@ -10,7 +10,7 @@ import re
 
 
 
-class BuildTask(Task):
+class AssembleTask(Task):
 
   element = property(lambda self: None)
 
@@ -87,13 +87,109 @@ class BuildTask(Task):
 
 
 
-class CompileTask(BuildTask):
+class BuildSubTask(Task):
+  def __init__(self,
+               build,
+               title):
+    Task.__init__(self,
+                  parent = build,
+                  title = title,
+                  element = None)
+
+    self.__build = build
+
+
+  @property
+  def build(self):
+    return self.__build
+
+
+
+class DownloadTask(BuildSubTask):
+  def __init__(self,
+               build):
+    BuildSubTask.__init__(self,
+                          build = build,
+                          title = 'Download %s source' % build.project)
+
+    self.__archive_file, _ = build.archive
+
+
+  def check(self):
+    if self.build.mudlark and os.path.exists(mkpath(self.build.workdir, self.__archive_file)):
+      return 'Using existing file: %s' % mkpath(self.build.workdir, self.__archive_file)
+
+
+  def run(self):
+    def report(blocknum, blocksize, size):
+      self.progress = '%05.2f %%' % round(float(blocknum * blocksize) * 100.0 / float(size), 2)
+
+    urllib.urlretrieve(url = self.build.url,
+                       filename = self.__archive_file,
+                       reporthook = report)
+
+
+
+class ExtractTask(BuildSubTask):
+  def __init__(self,
+               build):
+    BuildSubTask.__init__(self,
+                          build = build,
+                  title = 'Extract %s source' % build.project)
+
+    self.__archive_file, self.__archive_type = build.archive
+
+
+  def run(self):
+    def report(line):
+      self.progress = '%s %%' % int(line.strip())
+
+    sh.tar(sh.pv(self.__archive_file,
+                 '-n',
+                 _piped = True,
+                 _err = report),
+           '--strip-components=1',
+           '--%s' % self.__archive_type,
+           extract = True,
+           verbose = True,
+           directory = self.build.workdir_src,
+           _out = self.build.log)
+
+
+
+class CompileTask(BuildSubTask):
+  def __init__(self,
+               build):
+    BuildSubTask.__init__(self,
+                          build = build,
+                          title = 'Compile %s' % build.project)
+
+
+  def run(self):
+    self.build.compile(self)
+
+
+
+class InstallTask(BuildSubTask):
+  def __init__(self,
+               build):
+    BuildSubTask.__init__(self,
+                          build = build,
+                          title = 'Install %s' % build.project)
+
+
+  def run(self):
+    self.build.install(self)
+
+
+
+class BuildTask(AssembleTask):
 
   def __init__(self,
                parent,
                project,
                workspace):
-    BuildTask.__init__(self,
+    AssembleTask.__init__(self,
                        parent = parent,
                        project = project,
                        target = parent.workdir,
@@ -129,39 +225,6 @@ class CompileTask(BuildTask):
     return archive_file, archive_algo
 
 
-  def download(self, j):
-    archive_file, _ = self.archive
-
-    if self.mudlark and os.path.exists(mkpath(self.workdir, archive_file)):
-      j.state = JobState.Skipped(('Using existing file: %s' % mkpath(self.workdir, archive_file)))
-      return
-
-    def report(blocknum, blocksize, size):
-      j.progress = '%05.2f %%' % round(float(blocknum * blocksize) * 100.0 / float(size), 2)
-
-    urllib.urlretrieve(url = self.url,
-                       filename = archive_file,
-                       reporthook = report)
-
-
-  def extract(self, j):
-    archive_file, archive_algo = self.archive
-
-    def report(line):
-      j.progress = '%s %%' % int(line.strip())
-
-    sh.tar(sh.pv(archive_file,
-                 '-n',
-                 _piped = True,
-                 _err = report),
-           '--strip-components=1',
-           '--%s' % archive_algo,
-           extract = True,
-           verbose = True,
-           directory = self.workdir_src,
-           _out = self.log)
-
-
   @abstractmethod
   def compile(self, j):
     pass
@@ -177,21 +240,14 @@ class CompileTask(BuildTask):
     mkdir(self.workdir_dst)
 
     with cd(self.workdir):
-      with job(self, 'Download %s source' % self.project) as j:
-        self.download(j)
-
-      with job(self, 'Extracting %s source' % self.project) as j:
-        self.extract(j)
-
-      with job(self, 'Compile %s' % self.project) as j:
-        self.compile(j)
-
-      with job(self, 'Install %s' % self.project) as j:
-        self.install(j)
+      DownloadTask(build = self)()
+      ExtractTask(build = self)()
+      CompileTask(build = self)()
+      InstallTask(build = self)()
 
 
 
-class Kernel(CompileTask):
+class Kernel(BuildTask):
   ''' Download and compile kernel '''
 
   @property
@@ -253,7 +309,7 @@ class Kernel(CompileTask):
 
 
 
-class Busybox(CompileTask):
+class Busybox(BuildTask):
   ''' Download and build busybox '''
 
   @property
@@ -295,7 +351,7 @@ class Busybox(CompileTask):
 
 
 
-class Dropbear(CompileTask):
+class Dropbear(BuildTask):
   ''' Download and build dropbear '''
 
   @property
@@ -358,7 +414,7 @@ class Dropbear(CompileTask):
                     _out = self.log)
 
 
-class XZUtils(CompileTask):
+class XZUtils(BuildTask):
   ''' Download and build xz utils '''
 
   @property
@@ -405,7 +461,7 @@ class XZUtils(CompileTask):
 
 
 
-class UDPCast(CompileTask):
+class UDPCast(BuildTask):
   ''' Download and build udpcast '''
 
   @property
@@ -450,7 +506,7 @@ class UDPCast(CompileTask):
 
 
 
-class Image(BuildTask):
+class Image(AssembleTask):
   ''' Create maintenance boot image '''
 
   ldconfig_re = re.compile(r'''
@@ -490,7 +546,7 @@ class Image(BuildTask):
                parent,
                workspace,
                target):
-    BuildTask.__init__(self,
+    AssembleTask.__init__(self,
                        parent = parent,
                        project = 'image',
                        target = target,
@@ -624,7 +680,7 @@ class Image(BuildTask):
             pass
 
 
-      with job(self, 'Create initamfs'):
+      with job(self, 'Create initamfs archive'):
         initramfs = 'initramfs.cpio'
 
         sh.cpio(sh.find('.',
@@ -637,14 +693,14 @@ class Image(BuildTask):
                 _out = initramfs,
                 _err = self.log)
 
-      with job(self, 'Create boot image'):
+      with job(self, 'Assemble boot image'):
         self.__kernel.create(initramfs = mkpath(self.workdir, initramfs),
                              target = self.target)
 
 
   @staticmethod
   def argparser(parser):
-    BuildTask.argparser(parser)
+    AssembleTask.argparser(parser)
 
     parser.add_argument('target',
                         metavar = 'TARGET',

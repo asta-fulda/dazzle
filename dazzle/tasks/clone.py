@@ -59,9 +59,6 @@ class Acquire(Wakeup):
 
     finally:
       with job(self, 'Disable maintenance config', self.host) as j:
-        if not os.path.exists(config):
-          j.status = JobState.Skipped('Client specific TFTP config file does not exists: %s' % config)
-
         rm(config)
 
 
