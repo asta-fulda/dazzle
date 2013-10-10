@@ -57,10 +57,10 @@ class Wakeup(HostTask):
       self.state = JobState.Failed('Can\'t find interface for host: %s' % self.host.l3addr)
 
 
-    # Try 60 times to wake the host up
-    for x in xrange(0, 60):
+    # Try 120 times to wake the host up
+    for x in xrange(0, 120):
       # Update task's progress
-      self.progress = 'Poke %02d / 60' % (x + 1)
+      self.progress = 'Poke %02d / 120' % (x + 1)
 
       # Send out wake up packets
       self.__etherwake(self.host.l2addr,
