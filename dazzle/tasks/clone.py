@@ -50,8 +50,7 @@ class Acquire(Wakeup):
       if os.path.exists(config):
         j.status = JobState.Failed('Client specific TFTP config file already exists: %s' % config)
 
-      ln('-s',
-         template,
+      ln(template,
          config)
 
     try:
