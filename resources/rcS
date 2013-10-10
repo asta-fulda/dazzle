@@ -22,7 +22,7 @@ mdev -s
 
 # Optain IP address
 ip link set eth0 up
-udhcpc -S -b -i eth0 -s /etc/udhcpc/default.script
+udhcpc -S -n -t 16 -i eth0 -s /etc/udhcpc/default.script || poweroff
 
 # Enable multicast
 ip route add 224.0.0.0/4 dev eth0
