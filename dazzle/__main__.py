@@ -1,7 +1,6 @@
 import argparse
 
 from dazzle.task import find_tasks, job_manager
-from dazzle.host import HostList
 
 
 

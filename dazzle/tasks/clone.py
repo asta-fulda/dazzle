@@ -73,11 +73,12 @@ class Receive(HostTask):
       |([0-9]{1,3})\ ([0-9]{1,3})\ ([0-9]{1,3}))
       (\ |M|K)
     )
-    \ +\(
+    \ *\(\ *
       (?P<mbps>
         (\d+(\.\d+)?)
       )\ +Mbps
     \)
+    \ *.*
     $
   ''', re.VERBOSE)
 
@@ -127,12 +128,12 @@ class Receive(HostTask):
     def stream_lines(eol = '\n'):
       line = ''
       for x in stream:
-        if x != eol:
-          line += x
-
-        else:
+        if x == eol:
           yield line
           line = ''
+
+        else:
+          line += x
 
     # Wait for ready state and notify about it
     for line in stream_lines():
@@ -195,7 +196,7 @@ class Clone(Task, HostSetMixin):
       |([0-9]{1,3})\ ([0-9]{1,3})\ ([0-9]{1,3}))
       (\ |M|K)
     )
-    \ +.*
+    \ *.*
     $
   ''', re.VERBOSE)
 
@@ -231,8 +232,9 @@ class Clone(Task, HostSetMixin):
 
     stream = sh.udp_sender('--mcast-rdv-address', '224.0.0.1',
                            '--nokbd',
-                           '--interface', 'virbr0',
                            '--min-receivers', len(threads),
+                           '--mcast-data-address', '224.0.0.1',
+                           '--max-bitrate', '500m',
                            '--file', self.__src,
                            '--pipe', '/usr/bin/lzop',
                            _iter = 'err')
@@ -252,8 +254,9 @@ class Clone(Task, HostSetMixin):
         else:
           tran = int(tran)
 
-        self.progress = humanize.naturalsize(tran,
-                                             binary = True)
+        self.progress = '%s/s' % humanize.naturalsize(tran,
+                                                      binary = True,
+                                                      gnu = True)
 
     # Wait for all task finish
     for receiver in threads.itervalues():
