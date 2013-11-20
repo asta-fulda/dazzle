@@ -105,10 +105,6 @@ class Job(object):
     self.__parent = parent
     self.__childs = []
 
-    if parent is not None:
-      parent.childs.append(self)
-      parent.__notify()
-
     self.__title = title
 
     self.__element = element
@@ -117,6 +113,10 @@ class Job(object):
     self.__progress = None
 
     self.__listeners = set()
+
+    if parent is not None:
+      parent.childs.append(self)
+      parent.__notify()
 
     object.__init__(self)
 
