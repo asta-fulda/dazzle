@@ -4,3 +4,6 @@
 .pydevproject
 
 *.pyc
+
+build
+dist

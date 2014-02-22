@@ -1,13 +1,13 @@
 import setuptools
 
 
-version = open('VERSION').read().strip()
+version = open('VERSION').read().strip().split(' ')
 
 setuptools.setup(
   license = 'GNU GPLv3',
 
   name = 'dazzle',
-  version = version,
+  version = version[0],
 
   author = 'Dustin Frisch',
   author_email = 'fooker@lab.sh',
@@ -20,40 +20,30 @@ setuptools.setup(
 
   packages = setuptools.find_packages(),
 
-  package_data = {
-    'resources': ['*']
-  },
-
   namespace_packages = [
     'dazzle'
   ],
 
   install_requires = [
     'blessings >= 1.5.0',
-    'enum >= 0.4',
     'sh >= 1.0',
     'humanize >= 0.5',
-    'recordtype >= 1.0'
+    'recordtype >= 1.0',
+    'paramiko >= 1.12.2',
+    'ping >= 0.2',
+    'awake >= 1.0'
   ],
 
   entry_points = {
-    'dazzle.tasks' : [
-      'wakeup = dazzle.tasks.ctrl:WakeupGroup',
-      'shutdown = dazzle.tasks.ctrl:ShutdownGroup',
-      'execute = dazzle.tasks.ctrl:ExecuteGroup',
+    'dazzle.commands' : [
+      'wakeup = dazzle.commands.ctrl:WakeupCommand',
+      'shutdown = dazzle.commands.ctrl:ShutdownCommand',
+      'execute = dazzle.commands.ctrl:ExecuteCommand',
 
-      'acquire = dazzle.tasks.clone:AcquireGroup',
-      'receive = dazzle.tasks.clone:ReceiveGroup',
+      'acquire = dazzle.commands.clone:AcquireCommand',
+      'receive = dazzle.commands.clone:ReceiveCommand',
 
-      'clone = dazzle.tasks.clone:Clone',
-
-      'kernel = dazzle.tasks.bootimg:Kernel',
-      'busybox = dazzle.tasks.bootimg:Busybox',
-      'dropbear = dazzle.tasks.bootimg:Dropbear',
-      'lzoputils = dazzle.tasks.bootimg:LZOPUtils',
-      'udpcast = dazzle.tasks.bootimg:UDPCast',
-
-      'bootimg = dazzle.tasks.bootimg:Image',
+      'clone = dazzle.commands.clone:CloneCommand',
     ],
 
     'console_scripts' : [

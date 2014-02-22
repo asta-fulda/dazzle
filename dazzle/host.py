@@ -3,6 +3,7 @@ import collections
 import argparse
 import logging
 import threading
+import paramiko
 import ConfigParser as configparser
 
 from dazzle.task import Task
@@ -10,13 +11,16 @@ from dazzle.task import Task
 
 
 class Host(object):
-  def __init__(self, label, l2addr, l3addr):
+  ''' A host definition.
+  '''
+  
+  def __init__(self, label, mac, ip):
     self.__label = label
-
-    self.__l2addr = l2addr
-    self.__l3addr = l3addr
-
-    self.__l3addr = socket.gethostbyname(self.__l3addr)
+    
+    self.__mac = mac
+    
+    # Resolve the hostname to an IP address
+    self.__ip = socket.gethostbyname(ip)
 
 
   @property
@@ -25,13 +29,13 @@ class Host(object):
 
 
   @property
-  def l2addr(self):
-    return self.__l2addr
+  def mac(self):
+    return self.__mac
 
 
   @property
-  def l3addr(self):
-    return self.__l3addr
+  def ip(self):
+    return self.__ip
 
 
   def __str__(self):
@@ -40,44 +44,67 @@ class Host(object):
 
 
 class HostList(object):
-  def __init__(self, path):
+  ''' Manager for the host list.
+      
+      The host list is read from the config file using an .ini format parser
+      upon startup.
+      
+      Each host is accessable by its label and its defined group.
+  '''
+  
+  def __init__(self, path = '/etc/dazzle.conf'):
     parser = configparser.SafeConfigParser()
     parser.read(path)
 
     self.__hosts = {}
     self.__groups = collections.defaultdict(lambda: [])
-
+    
+    # Loop over all sections - one section per host
     for label in parser.sections():
       try:
+        # Create a host entry
         host = Host(label = label,
-                    l2addr = parser.get(label, 'l2addr'),
-                    l3addr = parser.get(label, 'l3addr'))
+                    mac = parser.get(label, 'mac'),
+                    ip = parser.get(label, 'ip'))
 
       except Exception as e:
         logging.warn('Ignoring host: %s (%s)', label, e)
 
       else:
+        # Remember host definition
         self.__hosts[label] = host
-
+        
+        # Check if host is assigned to one or more groups and add host to list
+        # of host for each group
         if parser.has_option(label, 'group'):
           for group in parser.get(label, 'group').split(','):
             self.__groups[group.strip()].append(host)
 
 
   def get(self, label):
+    ''' Returns a list of for the given label.
+        
+        If the label starts with an '@', the group with the name matching the
+        label is returned. If the group name is empty, the whole set of defined
+        hosts is returned.
+    '''
+    
     if label == '@':
+      # Return all defined hosts
       return self.__hosts.itervalues()
 
-    if label.startswith('@'):
-      return self.__groups[label[1:]]
+    if label.startswith('@') and label[1:] in self.__groups:
+      # Returns the hosts of the specified group
+      return iter(self.__groups[label[1:]])
 
     if label in self.__hosts:
-      return [self.__hosts[label]]
+      # Returns the host with the specified label
+      return iter([self.__hosts[label]])
 
     raise KeyError()
+    
 
-
-
+'''
 class HostTask(Task):
   def __init__(self, parent, host):
     Task.__init__(self,
@@ -86,10 +113,26 @@ class HostTask(Task):
 
     self.__host = host
 
+    self.__ssh_client = paramiko.SSHClient()
+    self.__ssh_client.load_system_host_keys()
+    self.__ssh_client.set_missing_host_key_policy(paramiko.WarningPolicy())
+    self.__ssh_client.connect(self.host.ip)
+
+
+  def __del__(self):
+    self.__ssh_client.close()
+
 
   @property
   def host(self):
     return self.__host
+
+
+  def do(self, command):
+    session = self._transport.open_session()
+    session.exec_command(command)
+
+    return session.makefile('rb')
 
 
 
@@ -187,3 +230,4 @@ def group(taskcls):
   Wrapped.__name__ = '@%s' % taskcls.__name__
 
   return Wrapped
+'''

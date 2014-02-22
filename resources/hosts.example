@@ -1,9 +1,0 @@
-[test]
-group = test
-
-l2addr = 52:54:00:32:7f:d5
-l3addr = 127.0.0.1
-
-[konferenzraum]
-l2addr = fc:4d:d4:38:3d:59
-l3addr = 127.0.0.1

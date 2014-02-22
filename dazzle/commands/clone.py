@@ -1,26 +1,24 @@
-from dazzle.host import HostTask, HostSetMixin, group
-from dazzle.task import Task, JobState, job
-from dazzle.commands import *
-from dazzle.utils import *
-
-from dazzle.tasks.ctrl import Wakeup, Shutdown
-
+import os
 import re
 import threading
 import humanize
 
+from dazzle.task import HostTask, CommandTask, SimpleCommandTask
+from dazzle.job import JobState, job
+
+from dazzle.commands.ctrl import WakeupTask, ShutdownTask
 
 
 
-class Acquire(Wakeup):
+class AcquireTask(WakeupTask):
   ''' Boot host in maintenance mode '''
 
   def check(self):
-    if Wakeup.check(self) is None:
+    if WakeupTask.check(self) is None:
       return None
 
     try:
-      ssh(self.host).cat('/etc/maintenance')
+      self.do('cat /etc/maintenance')
 
     except:
       return None
@@ -31,14 +29,14 @@ class Acquire(Wakeup):
 
   @property
   def pre(self):
-    return Shutdown(self,
-                    host = self.host)
+    return ShutdownTask(self,
+                        host = self.host)
 
 
-  def run(self):
+  def execute(self):
     ip = ''.join('%02X' % int(i)
                for
-               i in self.host.l3addr.split('.'))
+               i in self.host.ip.split('.'))
 
     template = '/srv/tftp/pxelinux.cfg/maintenance'
     config = '/srv/tftp/pxelinux.cfg/%s' % ip
@@ -50,19 +48,19 @@ class Acquire(Wakeup):
       if os.path.exists(config):
         j.status = JobState.Failed('Client specific TFTP config file already exists: %s' % config)
 
-      ln(template,
-         config)
+      os.link(template,
+              config)
 
     try:
-      Wakeup.run(self)
+      WakeupTask.execute(self)
 
     finally:
       with job(self, 'Disable maintenance config', self.host) as j:
-        rm(config)
+        os.unlink(config)
 
 
 
-class Receive(HostTask):
+class ReceiveTask(HostTask):
   ''' Receive data on host '''
 
   udp_receiver_stat_re = re.compile(r'''
@@ -112,16 +110,16 @@ class Receive(HostTask):
 
   @property
   def post(self):
-    return Shutdown(self,
-                    host = self.host)
+    return ShutdownTask(self,
+                        host = self.host)
 
 
-  def run(self):
-    stream = ssh(self.host)('udp-receiver',
-                            '--mcast-rdv-address', '224.0.0.1',
-                            '--nokbd',
-                            '--file', self.__dst,
-                            '--pipe', '"/usr/bin/lzop -dc"',
+  def execute(self):
+    stream = self.do('udp-receiver',
+                     '--mcast-rdv-address', '224.0.0.1',
+                     '--nokbd',
+                     '--file', self.__dst,
+                     '--pipe', '"/usr/bin/lzop -dc"',
                             _err_bufsize = 0,
                             _iter = 'err')
 
@@ -139,7 +137,7 @@ class Receive(HostTask):
     for line in stream_lines():
       if line.startswith('Compressed UDP receiver'): break
 
-    self.progress = 'Ready'
+    self.progress = 'Waiting'
     self.__event_ready.set()
 
     # Wait for receiving state and notify about it
@@ -185,7 +183,7 @@ class Receive(HostTask):
 
 
 
-class Clone(Task, HostSetMixin):
+class CloneCommand(CommandTask):
   ''' Clone to hosts '''
 
   udp_sender_stat_re = re.compile(r'''
@@ -201,40 +199,34 @@ class Clone(Task, HostSetMixin):
   ''', re.VERBOSE)
 
   def __init__(self, parent, hosts, src, dst):
-    Task.__init__(self,
-                  parent = parent,
-                  element = '[%s]' % ', '.join(str(host)
-                                               for host
-                                               in hosts))
+    CommandTask.__init__(self,
+                         parent = parent,
+                         element = '[%s]' % ', '.join(str(host)
+                                                      for host
+                                                      in hosts))
 
     self.__hosts = hosts
 
     self.__src = src
     self.__dst = dst
+  
+  
+  def create_task(self, host):
+    return ReceiveTask(parent = self,
+                       host = host,
+                       dst = self.__dst)
 
 
-  def run(self):
-    threads = {receiver: threading.Thread(target = receiver)
-               for receiver
-               in [Receive(parent = self,
-                           host = host,
-                           dst = self.__dst)
-                   for host
-                   in self.__hosts]}
-
-    # Start receiver tasks
-    for receiver in threads.itervalues():
-      receiver.start()
-
-    # Wait for all task be ready
-    for receiver in threads.iterkeys():
+  def execute(self, jobs):
+    # Wait for all receivers be ready
+    for receiver in jobs:
       receiver.event_ready.wait()
 
     stream = sh.udp_sender('--mcast-rdv-address', '224.0.0.1',
                            '--nokbd',
-                           '--min-receivers', len(threads),
+                           '--min-receivers', len(jobs),
                            '--mcast-data-address', '224.0.0.1',
-                           '--max-bitrate', '500m',
+                           #'--max-bitrate', '500m',
                            '--file', self.__src,
                            '--pipe', '/usr/bin/lzop',
                            _iter = 'err')
@@ -258,10 +250,6 @@ class Clone(Task, HostSetMixin):
                                                       binary = True,
                                                       gnu = True)
 
-    # Wait for all task finish
-    for receiver in threads.itervalues():
-      receiver.join()
-
 
   @staticmethod
   def argparser(parser):
@@ -278,9 +266,7 @@ class Clone(Task, HostSetMixin):
                         type = str,
                         help = 'the device to copy to')
 
-    HostSetMixin.argparser(parser)
 
 
-
-AcquireGroup = group(Acquire)
-ReceiveGroup = group(Receive)
+AcquireCommand = SimpleCommandTask(AcquireTask)
+ReceiveCommand = SimpleCommandTask(ReceiveTask)

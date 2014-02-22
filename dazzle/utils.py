@@ -1,56 +1,40 @@
-import os
-import contextlib
 
-from os.path import join as mkpath
+def saveiter(thing):
+  ''' Helper method returning a save iterator.
+      
+      If the passed value is None, an empty iterator is returned.
+      If the passed value is an iterable, the passed value is returned as-is.
+      Everything else is wrapped in an iterator yielding only the passed value.
+  '''
+  
+  import collections
+  
+  if thing is None:
+    return iter([])
 
-import sh
+  if not isinstance(thing, collections.Iterable):
+    return iter([thing])
+
+  return iter(thing)
 
 
 
-def resource(path):
-  from pkg_resources import resource_filename, Requirement
-
-  return resource_filename(Requirement.parse('dazzle'), mkpath('resources', path))
-
-
-
-def checkrc(func):
+def check_exc(func):
+  ''' Function wrapper for checking for exceptions.
+      
+      The wrapped function is called in a try-expect-block. If the function
+      throws any exception, the exception is catched and False is returned,
+      otherwise True is returned. The return value of the wrapped function is
+      ignored.
+  '''
+  
   def __(*args, **kwargs):
     try:
       func(*args, **kwargs)
       return True
-
-    except Exception as ex:
+ 
+    except Exception:
       return False
-
+ 
   return __
 
-
-
-@contextlib.contextmanager
-def cd(new_path):
-  old_path = os.getcwd()
-  os.chdir(new_path)
-
-  yield
-
-  os.chdir(old_path)
-
-
-
-@checkrc
-def ping(host,
-         timeout = 3):
-  sh.ping('-c', '3',
-          '-i', '0.2',
-          '-w', timeout,
-          host.l3addr)
-
-
-
-def ssh(host):
-  return sh.ssh.bake('-o', 'UserKnownHostsFile=/dev/null',
-                     '-o', 'StrictHostKeyChecking=no',
-                     '-o', 'PasswordAuthentication=no',
-                     '-l', 'root',
-                     host.l3addr)
