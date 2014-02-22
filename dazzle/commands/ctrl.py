@@ -30,6 +30,7 @@ class WakeupTask(HostTask):
   
   from awake import wol
 
+
   def check(self):
     if ping(self.host):
       return 'Host is already up'

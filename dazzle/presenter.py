@@ -145,11 +145,15 @@ class Presenter(multiprocessing.managers.BaseManager):
                        parent = None,
                        title = None)
     
-    # Initialize the animation
+    # Initialize and start the animation
     self.__animation_thread = threading.Thread(target = self.__animate)
     self.__animation_thread.daemon = True
+    
     self.__animation_shutdown = threading.Event()
+    
     self.__animation_ticks = 0
+
+    self.__animation_thread.start()
 
   
   def __create(self,
@@ -158,13 +162,12 @@ class Presenter(multiprocessing.managers.BaseManager):
     if parent is None:
       parent = self.__root
     
-    node = Node(presenter = self,
-                parent = parent,
-                title = title)
-    
-    self.__active_nodes.append(node)
-    
-    self.update()
+    with self.update():
+      node = Node(presenter = self,
+                  parent = parent,
+                  title = title)
+      
+      self.__active_nodes.append(node)
     
     return node
 
@@ -214,9 +217,11 @@ class Presenter(multiprocessing.managers.BaseManager):
         presentation after the node was updated.
     '''
     
+    # Serialize updates
     with self.__lock:
       
-      yield None
+      # Execute the context
+      yield
       
       # Remove all finished nodes from the list of active nodes
       for node in self.__active_nodes:
@@ -281,7 +286,7 @@ class Presenter(multiprocessing.managers.BaseManager):
         then calls update without changing any node.
     '''
     
-    while self.__animation_shutdown.is_set():
+    while not self.__animation_shutdown.is_set():
       time.sleep(1)
       
       # Increase animation ticks
