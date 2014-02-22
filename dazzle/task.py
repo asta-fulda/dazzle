@@ -1,9 +1,9 @@
 from abc import ABCMeta, abstractmethod
 
-import os
 import inspect
-import traceback
 import paramiko
+import collections
+import traceback
 import pkg_resources
 import multiprocessing
 
@@ -105,6 +105,11 @@ class Task(object):
 
 
 class HostTask(Task):
+  
+  CommandResult = collections.namedtuple('CommandResult', ['status',
+                                                           'output'])
+  
+  
   def __init__(self,
                presenter,
                parent,
@@ -119,7 +124,7 @@ class HostTask(Task):
     
     self.__ssh = paramiko.SSHClient()
     self.__ssh.load_system_host_keys()
-    self.__ssh.set_missing_host_key_policy(paramiko.WarningPolicy())
+    self.__ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
 
   @property
@@ -132,6 +137,13 @@ class HostTask(Task):
   
   
   def rsh(self, command):
+    ''' Executes a command on the remote host.
+        
+        The given command is executed on the remote host using SSH.
+        
+        The return value is a tuple of the exit code and the combined output of
+        the process stdout and stderr.
+    '''
     # Connect to the host
     self.__ssh.connect(self.host.ip,
                        username = 'root',
@@ -140,27 +152,27 @@ class HostTask(Task):
     # Open a channel
     channel = self.__ssh.get_transport().open_session()
     
+    # Combine stdout and stderr
+    channel.set_combine_stderr(True)
+    
+    # Set a timeout for the channel
+    channel.settimeout(1.0)
+     
     # Execute the command on remote
     channel.exec_command(command)
-    
+     
     # Get stderr and stdout
-    stdout = channel.makefile('rb', -1).read()
-    stderr = channel.makefile_stderr('rb', -1).read()
-    
+    output = channel.makefile('rb', -1).read()
+     
     # Get return code
     status = channel.recv_exit_status()
-    
+     
     # Close the connection
     self.__ssh.close()
-    
-    # Return stdout on success, stderr otherwise
-    if status == 0:
-      return stdout
-    
-    else:
-      return stderr
-    
-    self.__ssh.close()
+     
+    # Return status and output
+    return HostTask.CommandResult(status = status,
+                                  output = output)
 
 
 

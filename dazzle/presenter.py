@@ -272,8 +272,6 @@ class Presenter(multiprocessing.managers.BaseManager):
       # Unwind active block
       Presenter.terminal.stream.write('\r')
       Presenter.terminal.stream.write(Presenter.terminal.move_up * len(self.__active_nodes))
-      
-#       print len(self.__active_nodes), '-' * 80
 
 
   def __animate(self):

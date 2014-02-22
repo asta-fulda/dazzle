@@ -1,6 +1,4 @@
-import re
 import time
-import logging
 
 from dazzle.task import HostTask, SimpleCommandTask
 from dazzle.job import FailedJobState
@@ -27,35 +25,10 @@ def ping(host, timeout = None):
 
 
 
-def awake(host):
-  ''' Helper funktion to wake up a host.
-    
-      The given host must be an instance of Host.
-  '''
-  
-  import awake
-  
-  awake.wol.send_magic_packet(host.mac)
-
-
-
 class WakeupTask(HostTask):
   ''' Waking up host '''
-
-  ip_route_get_re = re.compile(r'''
-    ^
-    (?P<dst>
-      ([\d\.]+)
-    )
-    \ +dev\ +(?P<dev>
-      (\w+)
-    )
-    \ +src \ +(?P<src>
-      ([\d\.]+)
-    )
-    $
-  ''', re.VERBOSE)
-
+  
+  from awake import wol
 
   def check(self):
     if ping(self.host):
@@ -63,27 +36,13 @@ class WakeupTask(HostTask):
 
 
   def execute(self):
-#     # Find the interface to send the wake up packet from
-#     for line in sh.ip.route.get(self.host.ip):
-#       route = self.ip_route_get_re.match(line.strip())
-# 
-#       if route and route.group('dst') == self.host.ip:
-#         device = route.group('dev')
-#         break
-# 
-#     else:
-#       self.state(FailedJobState('Can\'t find interface for host: %s' % self.host.ip))
-
-
     # Try 120 times to wake the host up
     for x in xrange(0, 120):
       # Update task's progress
       self.job.progress('Try %02d / 120' % (x + 1))
 
       # Send out wake up packets
-#       self.__etherwake(self.host.mac,
-#                        '-i', device)
-      awake(self.host)
+      WakeupTask.wol.send_magic_packet(self.host.mac)
 
       # Check if the host is up
       if ping(self.host,
@@ -105,13 +64,14 @@ class ShutdownTask(HostTask):
 
 
   def execute(self):
-    self.rsh('/sbin/poweroff')
+    result = self.rsh('/sbin/poweroffx')
+    if result.status != 0:
+      self.job.state(FailedJobState(result.output))
     
     # Try 120 times to shut the host down
     for x in xrange(0, 120):
       
       # Update task's progress
-      logging.debug('p: %s', self.job)
       self.job.progress('Try %02d / 120' % (x + 1))
       
       # Check if the host is up
