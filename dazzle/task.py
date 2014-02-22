@@ -1,7 +1,6 @@
 from abc import ABCMeta, abstractmethod
 
 import os
-import logging
 import inspect
 import traceback
 import paramiko
@@ -15,10 +14,10 @@ from dazzle.utils import saveiter
 
 class Task(object):
   def __init__(self,
-               manager,
+               presenter,
                parent,
                title):
-    self.__job = Job(manager = manager,
+    self.__job = Job(presenter = presenter,
                      parent = parent.__job if parent is not None else None,
                      title = title)
     
@@ -65,8 +64,6 @@ class Task(object):
       self.job.state(CheckingJobState())
       excuse = self.check()
       
-      logging.debug('Task "%s" provides excues: "%s"', self, excuse)
-      
       # Exit early, if the job has en excuse not to run
       if excuse is not None:
         self.__job.state(SkippedJobState(excuse))
@@ -109,11 +106,11 @@ class Task(object):
 
 class HostTask(Task):
   def __init__(self,
-               manager,
+               presenter,
                parent,
                host):
     Task.__init__(self,
-                  manager = manager,
+                  presenter = presenter,
                   parent = parent,
                   title = '%s: %s' % (inspect.getdoc(self).split('\n')[0].strip(),
                                       host.label))
@@ -135,8 +132,6 @@ class HostTask(Task):
   
   
   def rsh(self, command):
-    logging.debug('Executing command "%s" on host "%s"', command, self.host)
-    
     # Connect to the host
     self.__ssh.connect(self.host.ip,
                        username = 'root',
@@ -191,17 +186,17 @@ class CommandTask(Task):
   
   
   def __init__(self,
-               manager,
+               presenter,
                hosts):
     Task.__init__(self,
-                  manager,
+                  presenter,
                   parent = None,
                   title = '%s: [%s]' % (inspect.getdoc(self).split('\n')[0].strip(),
                                         ', '.join(host.label
                                                   for host
                                                   in hosts)))
     
-    self.__manager = manager
+    self.__presenter = presenter
     
     self.__hosts = hosts
 
@@ -217,8 +212,6 @@ class CommandTask(Task):
   
   
   def execute(self):
-    logging.debug('Execute command task: "%s" (in %s)', self, os.getpid())
-    
     processes = {task: multiprocessing.Process(target = task)
                  for task
                  in (self.create_task(host)
@@ -239,8 +232,8 @@ class CommandTask(Task):
   
   
   @property
-  def manager(self):
-    return self.__manager
+  def presenter(self):
+    return self.__presenter
     
 
 
@@ -262,20 +255,19 @@ def SimpleCommandTask(host_task_cls):
     task = host_task_cls
     
     def __init__(self,
-                 manager,
+                 presenter,
                  hosts,
                  **kwargs):
       
       CommandTask.__init__(self,
-                           manager = manager,
+                           presenter = presenter,
                            hosts = hosts)
       
       self.__kwargs = kwargs
 
 
     def create_task(self, host):
-      logging.debug('Create task for host: (host="%s", parent="%s", args=%s, cls=%s)', host, self, self.__kwargs, host_task_cls)
-      return host_task_cls(manager = self.manager,
+      return host_task_cls(presenter = self.presenter,
                            parent = self,
                            host = host,
                            **self.__kwargs)

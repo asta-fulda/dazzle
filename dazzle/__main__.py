@@ -1,10 +1,9 @@
-
 import logging
 import argparse
 import itertools
 
 from dazzle.task import CommandTask
-from dazzle.job import JobManager
+from dazzle.presenter import Presenter
 from dazzle.host import HostList
 
 
@@ -64,19 +63,16 @@ def main():
                                 for host
                                 in args.hosts)))
   
-  # Create and start the job manager
-  job_manager = JobManager()
+  # Create the presenter
+  with Presenter() as presenter:
   
-  # Build the task instance to execute
-  task = args.command_cls(manager = job_manager,
-                          hosts = hosts,
-                          **command_args)
-  
-  # Execute the task
-  task()
-  
-  # Shut down the job manager
-  job_manager.shutdown()
+    # Build the task instance to execute
+    task = args.command_cls(presenter = presenter,
+                            hosts = hosts,
+                            **command_args)
+    
+    # Execute the task
+    task()
 
 
 
