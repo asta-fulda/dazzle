@@ -1,14 +1,9 @@
-import logging
 import argparse
 import itertools
 
 from dazzle.task import CommandTask
 from dazzle.presenter import Presenter
 from dazzle.host import HostList
-
-
-
-logging.basicConfig(level = logging.DEBUG)
 
 
 

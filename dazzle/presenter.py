@@ -3,7 +3,8 @@ import blessings
 import threading
 import multiprocessing.managers
 
-from dazzle.job import CheckingJobState, PreRunningJobState, RunningJobState, PostRunningJobState, SuccessJobState, SkippedJobState, FailedJobState, FinishedJobState
+from dazzle.job import BornJobState, CheckingJobState, PreRunningJobState, RunningJobState, PostRunningJobState, SuccessJobState, SkippedJobState, FailedJobState, FinishedJobState
+import contextlib
 
 
 
@@ -22,7 +23,7 @@ class Node(object):
     self.__parent = parent
     
     self.__title = title
-    self.__state = None
+    self.__state = BornJobState()
     self.__progress = None
     
     self.__children = []
@@ -40,17 +41,12 @@ class Node(object):
     return self.__state
   
   
-  def set_state(self, new_state):
-    assert type(self.__state) in type(new_state).antecedent
-  
-    old_state = self.__state
-    self.__state = new_state
-  
-    self.__progress = None
-  
-    self.__presenter.update(self,
-                            old_state = old_state,
-                            new_state = new_state)
+  def set_state(self, state):
+    assert type(self.__state) in type(state).antecedent
+    
+    with self.__presenter.update():
+      self.__state = state
+      self.__progress = None
   
   
   state = property(get_state,
@@ -58,15 +54,12 @@ class Node(object):
   
   
   def get_progress(self):
-    return self.__state
+    return self.__progress
     
     
   def set_progress(self, value):
-    self.__progress = value
-  
-    self.__presenter.update(self,
-                            old_state = self.state,
-                            new_state = self.state)
+    with self.__presenter.update():
+      self.__progress = value
   
   progress = property(get_progress,
                       set_progress)
@@ -102,24 +95,26 @@ class Presenter(multiprocessing.managers.BaseManager):
   
   
   state_marker = {
+    BornJobState: [terminal.bold_white('[ ') + terminal.bold_black('----') + terminal.bold_white(' ]')],
+    
     CheckingJobState: [terminal.bold_white('[ ') + terminal.bold_yellow('.') + terminal.yellow('.') + terminal.bold_yellow('.') + terminal.yellow('.') + terminal.bold_white(' ]'),
-                        terminal.bold_white('[ ') + terminal.yellow('.') + terminal.bold_yellow('.') + terminal.yellow('.') + terminal.bold_yellow('.') + terminal.bold_white(' ]')],
+                       terminal.bold_white('[ ') + terminal.yellow('.') + terminal.bold_yellow('.') + terminal.yellow('.') + terminal.bold_yellow('.') + terminal.bold_white(' ]')],
   
     PreRunningJobState: [terminal.bold_white('[ ') + terminal.bold_cyan('>') + terminal.cyan('>> ') + terminal.bold_white(' ]'),
-                          terminal.bold_white('[ ') + terminal.bold_cyan('>>') + terminal.cyan('> ') + terminal.bold_white(' ]'),
-                          terminal.bold_white('[ ') + terminal.cyan('>') + terminal.bold_cyan('>> ') + terminal.bold_white(' ]'),
-                          terminal.bold_white('[ ') + terminal.cyan('>>') + terminal.bold_cyan('> ') + terminal.bold_white(' ]')],
+                         terminal.bold_white('[ ') + terminal.bold_cyan('>>') + terminal.cyan('> ') + terminal.bold_white(' ]'),
+                         terminal.bold_white('[ ') + terminal.cyan('>') + terminal.bold_cyan('>> ') + terminal.bold_white(' ]'),
+                         terminal.bold_white('[ ') + terminal.cyan('>>') + terminal.bold_cyan('> ') + terminal.bold_white(' ]')],
   
     RunningJobState: [terminal.bold_white('[ ') + terminal.bold_cyan('>') + terminal.cyan('>>>') + terminal.bold_white(' ]'),
-                       terminal.bold_white('[ ') + terminal.bold_cyan('>>') + terminal.cyan('>>') + terminal.bold_white(' ]'),
-                       terminal.bold_white('[ ') + terminal.cyan('>') + terminal.bold_cyan('>>') + terminal.cyan('>') + terminal.bold_white(' ]'),
-                       terminal.bold_white('[ ') + terminal.cyan('>>') + terminal.bold_cyan('>>') + terminal.bold_white(' ]'),
-                       terminal.bold_white('[ ') + terminal.cyan('>>>') + terminal.bold_cyan('>') + terminal.bold_white(' ]')],
+                      terminal.bold_white('[ ') + terminal.bold_cyan('>>') + terminal.cyan('>>') + terminal.bold_white(' ]'),
+                      terminal.bold_white('[ ') + terminal.cyan('>') + terminal.bold_cyan('>>') + terminal.cyan('>') + terminal.bold_white(' ]'),
+                      terminal.bold_white('[ ') + terminal.cyan('>>') + terminal.bold_cyan('>>') + terminal.bold_white(' ]'),
+                      terminal.bold_white('[ ') + terminal.cyan('>>>') + terminal.bold_cyan('>') + terminal.bold_white(' ]')],
   
     PostRunningJobState: [terminal.bold_white('[ ') + terminal.bold_cyan(' >') + terminal.cyan('>>') + terminal.bold_white(' ]'),
-                           terminal.bold_white('[ ') + terminal.bold_cyan(' >>') + terminal.cyan('>') + terminal.bold_white(' ]'),
-                           terminal.bold_white('[ ') + terminal.cyan(' >') + terminal.bold_cyan('>>') + terminal.bold_white(' ]'),
-                           terminal.bold_white('[ ') + terminal.cyan(' >>') + terminal.bold_cyan('>') + terminal.bold_white(' ]')],
+                          terminal.bold_white('[ ') + terminal.bold_cyan(' >>') + terminal.cyan('>') + terminal.bold_white(' ]'),
+                          terminal.bold_white('[ ') + terminal.cyan(' >') + terminal.bold_cyan('>>') + terminal.bold_white(' ]'),
+                          terminal.bold_white('[ ') + terminal.cyan(' >>') + terminal.bold_cyan('>') + terminal.bold_white(' ]')],
   
     SuccessJobState: terminal.bold_white('[ ') + terminal.bold_green(' OK ') + terminal.bold_white(' ]'),
     SkippedJobState: terminal.bold_white('[ ') + terminal.bold_blue(' ** ') + terminal.bold_white(' ]'),
@@ -140,10 +135,10 @@ class Presenter(multiprocessing.managers.BaseManager):
 
   def __init(self):
     # Create the lock used to serialize updates
-    self.__lock = threading.Lock()
+    self.__lock = multiprocessing.Lock()
     
     # Initialize the set of active nodes
-    self.__active_nodes = set()
+    self.__active_nodes = []
     
     # Build the root node
     self.__root = Node(presenter = self,
@@ -167,9 +162,9 @@ class Presenter(multiprocessing.managers.BaseManager):
                 parent = parent,
                 title = title)
     
-    self.update(node,
-                None,
-                None)
+    self.__active_nodes.append(node)
+    
+    self.update()
     
     return node
 
@@ -188,7 +183,7 @@ class Presenter(multiprocessing.managers.BaseManager):
 
     # Print the job line
     Presenter.terminal.stream.write('%s %s' % (prefix,
-                                                title))
+                                               title))
     Presenter.terminal.stream.write(Presenter.terminal.clear_eol + '\n')
     
     # The jobs state is definitly FinishedJobState here
@@ -210,36 +205,36 @@ class Presenter(multiprocessing.managers.BaseManager):
                                                       line[i:i + width]))
           Presenter.terminal.stream.write(Presenter.terminal.clear_eol + '\n')
 
-
-  def update(self,
-             node,
-             old_state,
-             new_state):
+  
+  @contextlib.contextmanager
+  def update(self):
+    ''' Context manager for code updating a node.
+        
+        The context is synchronized by a presenter wide node and updates the
+        presentation after the node was updated.
+    '''
+    
     with self.__lock:
-      # Unwind active block
-      Presenter.terminal.stream.write('\r')
-      Presenter.terminal.stream.write(Presenter.terminal.move_up * len(self.__active_nodes))
-
-      if (type(old_state) == type(None) and
-          type(new_state) != type(None)):
-        # New node started
-        self.__active_nodes.add(node)
-
-      if type(new_state) in [SuccessJobState,
-                             SkippedJobState]:
-        # Node finished - print baglog above list
-        self.__print_backlog(node)
-
-      if type(new_state) in [SuccessJobState,
-                             SkippedJobState,
-                             FailedJobState]:
-        # Node ended
-        self.__active_nodes.remove(node)
-
+      
+      yield None
+      
+      # Remove all finished nodes from the list of active nodes
+      for node in self.__active_nodes:
+        if type(node.state) in [SuccessJobState,
+                                SkippedJobState,
+                                FailedJobState]:
+          # Print backlog for finished node
+          self.__print_backlog(node)
+          
+          # Remove from list of active ones
+          self.__active_nodes.remove(node)
+  
       # Print the active block
       def print_childs(parent):
+        # Doing an off-by-one-recusion to skip root node
         for node in parent.children:
-          if node.state is None or node not in self.__active_nodes:
+          # Ignore all non-active nodes
+          if node not in self.__active_nodes:
             continue
           
           # Get the animation frames for the nodes state marker
@@ -265,18 +260,20 @@ class Presenter(multiprocessing.managers.BaseManager):
           
           # Print the node line
           Presenter.terminal.stream.write('%s %s %s' % (prefix,
-                                                         title,
-                                                         progress))
+                                                        title,
+                                                        progress))
           Presenter.terminal.stream.write(Presenter.terminal.clear_eol + '\n')
           
           # Recursice draw child nodes
           print_childs(node)
       
       print_childs(self.__root)
-
-      if type(new_state) == FailedJobState:
-        # Node failed - print backlog to the end of the list
-        self.__print_backlog(node)
+      
+      # Unwind active block
+      Presenter.terminal.stream.write('\r')
+      Presenter.terminal.stream.write(Presenter.terminal.move_up * len(self.__active_nodes))
+      
+#       print len(self.__active_nodes), '-' * 80
 
 
   def __animate(self):
@@ -290,12 +287,9 @@ class Presenter(multiprocessing.managers.BaseManager):
       time.sleep(1)
       
       # Increase animation ticks
-      self.__animation_ticks += 1
+      with self.update():
+        self.__animation_ticks += 1
       
-      # Update all nodes
-      self.update(node = None,
-                  old_state = None,
-                  new_state = None)
   
   
   @staticmethod

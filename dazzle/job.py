@@ -11,10 +11,6 @@ class JobState(object):
 class ActiveJobState(JobState):
   def __init__(self):
     JobState.__init__(self)
-  
-  
-  def __str__(self):
-    return '%s' % type(self)
 
 
 
@@ -28,22 +24,21 @@ class FinishedJobState(JobState):
   @property
   def message(self):
     return self.__message
-  
-  
-  def __str__(self):
-    return '%s(%s)' % (type(self), self.__message)
 
 
+
+BornJobState = type('BornJobState', (JobState,), {})
+BornJobState.antecedent = []
 
 CheckingJobState = type('CheckingJobState', (ActiveJobState,), {})
-CheckingJobState.antecedent = [type(None)]
+CheckingJobState.antecedent = [BornJobState]
 
 PreRunningJobState = type('PreRunningJobState', (ActiveJobState,), {})
-PreRunningJobState.antecedent = [type(None),
+PreRunningJobState.antecedent = [BornJobState,
                                  CheckingJobState]
 
 RunningJobState = type('RunningJobState', (ActiveJobState,), {})
-RunningJobState.antecedent = [type(None),
+RunningJobState.antecedent = [BornJobState,
                               CheckingJobState,
                               PreRunningJobState]
 
