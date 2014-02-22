@@ -65,7 +65,7 @@ class ShutdownTask(HostTask):
 
 
   def execute(self):
-    result = self.rsh('/sbin/poweroffx')
+    result = self.rsh('/sbin/poweroff')
     if result.status != 0:
       self.job.state(FailedJobState(result.output))
     

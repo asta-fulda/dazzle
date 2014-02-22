@@ -122,7 +122,7 @@ class HostTask(Task):
     
     self.__host = host
     
-    # Lazy initialized SSH connection
+    # Lazy initialized SSH client
     self.__ssh = None
 
 
@@ -144,15 +144,16 @@ class HostTask(Task):
         the process stdout and stderr.
     '''
     
-    # Lazy initialize the SSH connection
+    # Lazy initialize the SSH client
     if self.__ssh is None:
       self.__ssh = paramiko.SSHClient()
       self.__ssh.load_system_host_keys()
       self.__ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-      
-      self.__ssh.connect(self.host.ip,
-                         username = 'root',
-                         password = 'root')
+    
+    # Connect to the remote host
+    self.__ssh.connect(self.host.ip,
+                       username = 'root',
+                       password = 'root')
     
     # Open a channel
     channel = self.__ssh.get_transport().open_session()
